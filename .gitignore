@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.~lock.*#
+
+# ДСК source/sample documents — must stay local, never committed
+*.docx
