@@ -31,9 +31,16 @@ paragraph list. A deterministic surname/full-name prefilter narrows this
 down to a small candidate window *before* the LLM ever sees it — this is
 what prevents namesakes governed by different orders from being mixed
 together, and lets the LLM call be skipped entirely when the person isn't
-in that day at all. `ask_llm()` sends only that narrow window to a local
-Ollama model and gets back a pointer (never prose). `assemble_fragment()`
-slices the original text per the pointer, applies exact-match redactions,
+in that day at all. Before the LLM call, `find_preceding_order_paragraph()`
+and `find_immediate_label_header()` also walk backward from the target to
+locate the governing order and any immediate call-sign/position header —
+which can sit outside the ±8 window (e.g. one order heading a long list of
+many groups) — and force them into the final context regardless of what
+the LLM selects, since testing showed the model can drop them even when
+they're already visible (see `CLAUDE.md` bug log). `ask_llm()` sends the
+candidate window to a local Ollama model and gets back a pointer (never
+prose). `assemble_fragment()` slices the original text per the (merged)
+pointer, applies exact-match redactions,
 runs guardrails (surname must be present, context must not span two
 different order numbers), strips coordinates/location labels, applies the
 one allowed punctuation fix, and attaches date/time metadata. The date
@@ -55,14 +62,16 @@ graph TD
   subgraph Prefilter["Deterministic prefilter — no LLM"]
     Load --> Surname["find_candidate_windows()\nsurname match, ±8 paragraphs"]
     Surname --> Narrow["filter_windows_by_full_name()\ndisambiguate namesakes"]
+    Narrow --> Forced["find_preceding_order_paragraph()\nfind_immediate_label_header()\nlocate governing order + label,\neven outside the ±8 window"]
   end
 
   Narrow -->|no surname hits| NotFound["found: false\n(LLM never called)"]
-  Narrow -->|candidate window| LLM["ask_llm()\nlocal Ollama, qwen3:8b-q8_0"]
+  Forced -->|candidate window| LLM["ask_llm()\nlocal Ollama, qwen3:8b-q8_0"]
 
   Cols --> Boundaries["assign_time_boundaries()\ninline time, else\nsnap left-column labels"]
 
-  LLM -->|pointer JSON:\ncontext + target + redactions| Assemble["assemble_fragment()\nslice source text"]
+  LLM -->|pointer JSON:\ncontext + target + redactions| Merge["merge forced order/label\ninto context_paragraph_indices"]
+  Merge --> Assemble["assemble_fragment()\nslice source text"]
   Filename --> Assemble
   Boundaries -->|time_for_paragraph| Assemble
 

@@ -16,6 +16,9 @@ from prefilter import (
     extract_surname,
     filter_windows_by_full_name,
     find_candidate_windows,
+    find_full_name_paragraph,
+    find_immediate_label_header,
+    find_preceding_order_paragraph,
     select_ambiguous_window,
 )
 from time_extraction import assign_time_boundaries
@@ -101,11 +104,48 @@ def main():
                     if i not in seen:
                         seen.add(i)
                         candidate_paragraphs.append((i, dict(all_paragraphs)[i]))
+
+            # The paragraphs that actually govern this person can sit
+            # outside the fixed ±window, or be silently skipped by the LLM
+            # even when they ARE in the window -- found empirically (see
+            # CLAUDE.md bug log): a long composition list of many call-sign
+            # groups can be governed by one order dozens of paragraphs
+            # earlier, and even with that order in view, the model still
+            # dropped the immediate call-sign sub-header right above the
+            # target. Both are deterministically findable (no LLM needed),
+            # so rather than trust the model to select them, force them into
+            # the final context below regardless of what the LLM returns --
+            # this is what actually held up in testing; the prompt
+            # clarification alone did not.
+            forced_context = set()
+            anchor = find_full_name_paragraph(all_paragraphs, windows_to_use[0], full_name)
+            if anchor is not None:
+                order_idx = find_preceding_order_paragraph(all_paragraphs, anchor)
+                if order_idx is not None:
+                    forced_context.add(order_idx)
+                    if order_idx not in seen:
+                        seen.add(order_idx)
+                        candidate_paragraphs.append((order_idx, dict(all_paragraphs)[order_idx]))
+                        note += f"; додано керівний параграф-наказ [{order_idx}] поза вікном"
+
+                label_idx = find_immediate_label_header(all_paragraphs, anchor)
+                if label_idx is not None:
+                    forced_context.add(label_idx)
+                    if label_idx not in seen:
+                        seen.add(label_idx)
+                        candidate_paragraphs.append((label_idx, dict(all_paragraphs)[label_idx]))
+                        note += f"; додано заголовок-мітку [{label_idx}]"
+            candidate_paragraphs.sort(key=lambda p: p[0])
+
             print(f"    (префільтр: {len(candidate_paragraphs)} з {len(all_paragraphs)} параграфів, "
                   f"{note})")
 
             pointer = ask_llm(candidate_paragraphs, person)
             pointer["_surname_check"] = surname  # for the sanity check in assemble_fragment
+            if pointer.get("found") and forced_context - set(pointer["context_paragraph_indices"]):
+                pointer["context_paragraph_indices"] = sorted(
+                    set(pointer["context_paragraph_indices"]) | forced_context
+                )
             print("Відповідь LLM (pointer):", pointer)
 
             if not pointer.get("found"):

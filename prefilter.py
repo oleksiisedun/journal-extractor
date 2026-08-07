@@ -2,6 +2,8 @@
 what keeps the LLM from ever seeing two unrelated namesake windows at once,
 and lets it be skipped entirely when a person isn't in a given day at all."""
 
+from patterns import ORDER_REF_PATTERN
+
 
 def find_candidate_windows(paragraphs, surname, window=8):
     """Deterministic prefilter (no LLM): paragraph windows around mentions
@@ -71,3 +73,59 @@ def select_ambiguous_window(windows, strategy):
     if strategy == "last":
         return windows[-1]
     raise ValueError(f"Unknown FULL_NAME_AMBIGUITY_STRATEGY: {strategy!r} (expected 'first' or 'last')")
+
+
+def find_full_name_paragraph(paragraphs, window, full_name):
+    """Returns the index of the single paragraph within `window` that
+    contains the full name verbatim -- the anchor the target almost
+    certainly sits on -- or None if no single paragraph in the window
+    contains it (e.g. the name happens to span a paragraph break in the
+    joined window text that filter_windows_by_full_name() checked)."""
+    lo, hi = window
+    para_dict = dict(paragraphs)
+    for i in range(lo, hi + 1):
+        if full_name.upper() in para_dict[i].upper():
+            return i
+    return None
+
+
+def find_preceding_order_paragraph(paragraphs, anchor_index):
+    """Walks backward from `anchor_index` for the nearest paragraph matching
+    ORDER_REF_PATTERN -- the section/order header that actually governs the
+    anchor. This can sit much further back than the fixed ±window: a single
+    order (e.g. a БОЙОВИЙ НАКАЗ) can head a long composition list of many
+    call-sign groups, so the governing order paragraph for someone deep in
+    that list may be dozens of paragraphs away. Without this, the LLM's
+    window can end up containing only a LATER, unrelated order paragraph
+    (one that starts the next section right after the target) and mistake
+    it for context -- found empirically, see CLAUDE.md bug log. Returns
+    None if no such paragraph exists before the anchor."""
+    para_dict = dict(paragraphs)
+    for i in range(anchor_index - 1, -1, -1):
+        if ORDER_REF_PATTERN.search(para_dict[i]):
+            return i
+    return None
+
+
+def find_immediate_label_header(paragraphs, anchor_index):
+    """Returns the index of the paragraph immediately preceding
+    `anchor_index` if it looks like a position/call-sign label header --
+    quoted in « » guillemets (e.g. 'СЗМ «ФЛЕШ»') or ending in ':' -- rather
+    than an ordinary content/personnel line. Real personnel entries never
+    contain guillemets (verified across all sample files: « » only appears
+    in call-sign/position labels, order references, and event descriptions,
+    never in a bare rank+name line), so this is a cheap, safe signal that
+    avoids having to parse rank/name shapes. This complements
+    find_preceding_order_paragraph(), which can land far back and miss an
+    immediate sub-header the target sits directly under (found empirically:
+    the LLM was given this label already in-window and still didn't select
+    it as context even after a prompt clarification -- see CLAUDE.md bug
+    log). Returns None if the previous paragraph doesn't look like a
+    header, or anchor_index is 0."""
+    if anchor_index <= 0:
+        return None
+    para_dict = dict(paragraphs)
+    text = para_dict[anchor_index - 1].strip()
+    if "«" in text or "»" in text or text.endswith(":"):
+        return anchor_index - 1
+    return None

@@ -87,26 +87,42 @@ introduce wording drift, because it never gets a chance to output prose.
    ambiguity (e.g. two identically-named people); `select_ambiguous_window()`
    picks the first or last occurrence in the file per
    `FULL_NAME_AMBIGUITY_STRATEGY` in `config.py`.
-4. **LLM call** (Ollama, local): given the (usually single, ~10-paragraph)
+4. **Forced deterministic context** (deterministic, no LLM — `run_demo.py`,
+   `find_preceding_order_paragraph()` + `find_immediate_label_header()` in
+   `prefilter.py`): before the LLM call, walk backward from the full-name
+   anchor paragraph for (a) the nearest preceding paragraph matching
+   `ORDER_REF_PATTERN` — this can be dozens of paragraphs outside the ±8
+   window, e.g. one order heading a long composition list of many
+   call-sign groups — and (b) the immediately preceding paragraph if it
+   looks like a position/call-sign label (contains `«»` guillemets or ends
+   in `:`, never seen in a bare personnel line across any sample file).
+   Both are merged into `context_paragraph_indices` after the LLM call
+   regardless of what the LLM itself returned — found empirically that the
+   LLM would still drop the label paragraph even when it was already
+   visible in-window and a prompt rule asked for it explicitly (see bug
+   log). This mirrors the project's established pattern: prefer moving a
+   recurring failure out of the model's hands entirely over asking it more
+   firmly in the prompt.
+5. **LLM call** (Ollama, local): given the (usually single, ~10-paragraph)
    candidate window, returns the pointer JSON above. See "LLM config"
    below for the non-obvious settings this depends on.
-5. **Deterministic assembly**: slice the indicated paragraphs, apply exact
+6. **Deterministic assembly**: slice the indicated paragraphs, apply exact
    `str.replace()` for each redaction (raises `ValueError` — fail closed —
    if a redaction substring isn't found character-for-character).
-6. **Coordinate / location-label stripping**: `strip_coordinates()` removes
+7. **Coordinate / location-label stripping**: `strip_coordinates()` removes
    MGRS-style grid coordinates (e.g. `37U CR 1234 5678`), and
    `strip_location_labels()` removes the phrase "район зосередження" and
    its grammatical variants — both applied per-paragraph, after redactions
    (so redaction matching still runs against untouched source text) and
    before the fragment is joined. Both run unconditionally, always, not
    just when the content looks out of place.
-7. **Guardrails** (all added after observing real model failures — see bug
+8. **Guardrails** (all added after observing real model failures — see bug
    log, do not remove without understanding why they exist):
    - Target's surname must appear in the final assembled text.
    - Context paragraphs must not reference more than one distinct order
      number (regex `№\S+`).
-8. **Punctuation fix**: trailing `;` → `.`, mechanical, nothing else.
-9. **Date + time metadata** (deterministic, no LLM — see "Time-of-day
+9. **Punctuation fix**: trailing `;` → `.`, mechanical, nothing else.
+10. **Date + time metadata** (deterministic, no LLM — see "Time-of-day
    extraction" below): `extract_date_from_filename()` parses the day's date
    from the `.docx` filename (separator between DD/MM/YYYY varies by file —
    `_`, `.`, or `-`, all seen in real filenames); `assign_time_boundaries()`
@@ -278,8 +294,35 @@ against these exact cases before considering it done.
    in place regardless: the fail-closed redaction-substring check in
    `assembly.py` would catch a recurrence (raises `ValueError`, no bad
    output emitted).
+6. **Model picked a LATER, unrelated order paragraph as context because the
+   TRUE governing order was outside the ±8 window entirely.** Real case
+   (`ЖБД_12-04-2026.docx`, КРАВЧЕНКО Євгеній Геннадійович): the target sits
+   at paragraph 108, inside a long composition list of ~15 call-sign groups
+   (`ПВ «...»`, `СЗМ «...»`) all governed by one order header 43 paragraphs
+   earlier (65, `№БН1/Б3/ДСК`). The ±8 window (100-109) never contained
+   paragraph 65 — but it did contain paragraph 109, an unrelated order that
+   actually starts the *next* section right after the target. The LLM had
+   no way to pick correctly; it wasn't shown the right answer. This is not
+   the same failure shape as item 3 (mixing two orders it *could* see) —
+   here the correct paragraph was never in the candidate set at all, so no
+   amount of prompt wording could have fixed it. A second, narrower gap
+   surfaced once the window fix was in: paragraph 107 (`СЗМ «ФЛЕШ»`, the
+   immediate call-sign sub-header right above the target) was already
+   inside the original window, and the model *still* didn't select it as
+   context — even after adding an explicit prompt rule about
+   call-sign/position labels lacking trailing punctuation. Confirmed at
+   temperature 0 across reruns: prompting alone did not change the output.
+   Fixed both, deterministically, in `prefilter.py` —
+   `find_preceding_order_paragraph()` and `find_immediate_label_header()`
+   walk backward from the full-name anchor paragraph for (a) the nearest
+   preceding `ORDER_REF_PATTERN` match regardless of distance, and (b) an
+   immediately preceding line containing `«»` guillemets or ending in `:`
+   (verified: never present in a bare personnel line across all three
+   sample files) — both merged into `context_paragraph_indices` in
+   `run_demo.py` after the LLM call, overriding whatever the LLM itself
+   returned. See "Pipeline" step 4 above.
 
-**Pattern across items 1-4**: the fixes that actually held up were the ones
+**Pattern across items 1-6**: the fixes that actually held up were the ones
 that removed the need for the model to get something right, not the ones
 that just asked it more firmly. Prefer restructuring the schema/pipeline
 over adding another prompt paragraph when a bug recurs.
@@ -315,9 +358,10 @@ the filename-separator variants (see `journals/`, gitignored):
 - Code is split into small, single-purpose modules at the repo root (flat,
   no package directory — this project isn't distributed/packaged, so the
   extra nesting isn't worth it): `config.py` (settings), `patterns.py`
-  (the one regex — `ORDER_REF_PATTERN` — shared between `assembly.py` and
-  `time_extraction.py`, kept separate to avoid a circular import between
-  those two), `docx_parsing.py`, `prefilter.py`, `llm_client.py`
+  (the one regex — `ORDER_REF_PATTERN` — shared between `assembly.py`,
+  `time_extraction.py`, and `prefilter.py`; kept separate to avoid a
+  circular import between `assembly.py` and `time_extraction.py`),
+  `docx_parsing.py`, `prefilter.py`, `llm_client.py`
   (system prompt + schema + `ask_llm()`), `time_extraction.py`,
   `assembly.py`. `run_demo.py` is the entry point — it wires the modules
   together and prints results for a handful of hand-picked test people.

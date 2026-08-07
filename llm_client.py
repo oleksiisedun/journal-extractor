@@ -16,12 +16,20 @@ name to find, and the numbered paragraph list.
 Output THREE things, never the text itself:
 1. "context_paragraph_indices" — paragraphs needed for legal/section
    context: order references (containing "БР", "наказ", "розпорядження", or
-   №.../.../ДСК), section headers (e.g. "на ПВ «...»:"). Not necessarily
+   №.../.../ДСК), section/position headers (e.g. "на ПВ «...»:", or a short
+   standalone call-sign label immediately above the target's own paragraph
+   like "СЗМ «ФЛЕШ»" — these headers often have NO trailing punctuation at
+   all, unlike ordinary content lines which always end in ; or . — don't
+   skip one just because it lacks a colon or an order number). Not necessarily
    adjacent to the target — skip over any gap of other people's own
    paragraphs. Must never contain other people's names, and must come from
    the SAME order/section that governs the target — if the list contains
    candidates from two different, unrelated orders (e.g. two namesakes),
    never mix context from both; a person is governed by exactly one order.
+   The governing order always comes BEFORE the target in the paragraph
+   numbering, even if far before it (a single order can head a long list of
+   many groups). An order-reference paragraph that appears AFTER the target
+   starts the NEXT, later section — never select it as context.
 2. "target_paragraph_index" — the SINGLE paragraph containing the target,
    matched by FULL name (surname + first name + patronymic), since several
    people may share a surname.
