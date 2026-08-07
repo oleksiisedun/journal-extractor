@@ -1,15 +1,8 @@
 """
 Mini test of a local LLM for generating ЖБД (combat log) extracts.
 
-Logic: the LLM NEVER writes the final text. It only returns "pointers"
-(paragraph range + what to strip), and the fragment text is always
-assembled by this code via an exact character slice of the source.
-
-Run:
-    1. Install Ollama and pull the model
-    2. pip install python-docx requests --break-system-packages
-    3. Put your ЖБД .docx in the same folder (or set a full path in ZHBD_PATH)
-    4. python test_vytyah_extraction.py
+See README.md for setup/run instructions and CLAUDE.md for full pipeline
+and rule documentation.
 """
 
 import json
@@ -24,8 +17,7 @@ ZHBD_PATH = "ЖБД_02_04_2026.docx"  # path to the daily ЖБД file
 # ---------- STEP 1: Parse the source (no LLM) ----------
 
 def load_paragraphs(docx_path):
-    """Extracts all non-empty paragraphs of the document with continuous
-    numbering, in the EXACT form they were written in the original
+    """Extracts all non-empty paragraphs with continuous numbering, verbatim
     (no pandoc/reflow)."""
     doc = Document(docx_path)
     result = []
@@ -41,11 +33,9 @@ def load_paragraphs(docx_path):
 
 
 def find_candidate_windows(paragraphs, surname, window=8):
-    """Cheap deterministic prefilter (no LLM): takes only paragraph windows
-    around mentions of the SURNAME (not the full name — to avoid losing
-    namesakes), instead of the whole day. This drastically cuts prompt
-    size and generation time, and also improves accuracy, since the model
-    never sees hundreds of clearly irrelevant paragraphs."""
+    """Deterministic prefilter (no LLM): paragraph windows around mentions
+    of the SURNAME, not the full name — avoids losing namesakes at this
+    stage."""
     para_dict = dict(paragraphs)
     max_idx = max(para_dict.keys())
     hits = [i for i, t in paragraphs if surname.upper() in t.upper()]
@@ -79,12 +69,9 @@ def extract_full_name(rank_and_name):
 
 
 def filter_windows_by_full_name(paragraphs, windows, full_name):
-    """Narrows the candidate windows (found by surname — may contain several
-    namesakes) down to the ones where the FULL name occurs verbatim. This
-    removes ambiguity (and reduces prompt size) BEFORE the LLM call,
-    instead of relying on the model to pick the right window — that is
-    exactly what previously caused context from different orders to be
-    mixed together."""
+    """Narrows surname-based windows down to the ones where the FULL name
+    occurs verbatim, removing ambiguity before the LLM call rather than
+    relying on the model to pick the right window."""
     para_dict = dict(paragraphs)
     matched = []
     for lo, hi in windows:
@@ -207,8 +194,7 @@ RESPONSE_SCHEMA = {
 
 def ask_llm(paragraphs, rank_and_name):
     """Sends the candidate paragraph window to the local LLM and returns the
-    parsed pointer JSON (found / context_paragraph_indices /
-    target_paragraph_index / redactions) — never the assembled text itself."""
+    parsed pointer JSON — never the assembled text itself."""
     listing = "\n".join(f"[{i}] {text}" for i, text in paragraphs)
     user_prompt = (
         f"Looking for: {rank_and_name}\n\n"
@@ -305,10 +291,8 @@ def strip_location_labels(text):
 
 def assemble_fragment(paragraphs, pointer):
     """Deterministically assembles the final fragment from the LLM's pointer
-    by slicing the original source paragraphs and applying exact-match
-    redactions — never any LLM-generated text. Runs the sanity guardrails
-    (order-reference conflict, target-surname presence) and applies the one
-    allowed mechanical punctuation fix (trailing ';' -> '.')."""
+    — slices source text, applies redactions, runs guardrails, applies the
+    one allowed punctuation fix."""
     para_dict = dict(paragraphs)
 
     if not pointer["found"]:
