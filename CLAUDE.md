@@ -258,12 +258,20 @@ against these exact cases before considering it done.
    explicit prompt rule and Example 1's "no redaction needed" case.
    Reproduced deterministically (3/3 runs, temperature 0), and confirmed via
    A/B testing against both the real-name and fictional-name versions of the
-   system prompt — identical failure either way, so this is a pre-existing
-   model weakness, not a prompt-wording regression. Not yet root-caused or
-   fixed; currently relies entirely on defense in depth — the existing
-   fail-closed redaction-substring check in `assembly.py` catches it
-   (raises `ValueError`, no bad output emitted), so this degrades to a
-   manual-review case rather than silent corruption.
+   system prompt — identical failure either way, so this was not a
+   prompt-wording regression. Fixed (tentatively) by shrinking the system
+   prompt: dropped Example 4 (pure repetition of a rule already stated
+   elsewhere, no new example data) and the duplicated NEVER/CRITICAL phrasing
+   in the instructions, and trimmed the now-redundant `RESPONSE_SCHEMA`
+   descriptions — 5073 → 3590 chars (-29%). Re-running the exact same real
+   case afterward now returns the correct pointer with no hallucinated
+   redaction. This is one manual rerun, not a regression suite — re-verify
+   if this failure shape recurs, and treat the "real accuracy benchmark"
+   item (see Not yet built) as the right way to confirm this holds at scale
+   rather than trusting a single anecdotal pass. Defense in depth is still
+   in place regardless: the fail-closed redaction-substring check in
+   `assembly.py` would catch a recurrence (raises `ValueError`, no bad
+   output emitted).
 
 **Pattern across items 1-4**: the fixes that actually held up were the ones
 that removed the need for the model to get something right, not the ones
