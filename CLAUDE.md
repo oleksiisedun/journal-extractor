@@ -17,7 +17,7 @@ paraphrasing, zero rewriting, zero "smoothing" of style.** This is an
 official document — invented or reworded text is not an acceptable failure
 mode, ever.
 
-The only three edits ever allowed:
+The only edits ever allowed:
 1. Selecting *which* paragraphs to include (a person's mention doesn't have
    to be contiguous with its legal-basis order reference).
 2. Removing *other people's* text when they share the exact same paragraph
@@ -25,6 +25,16 @@ The only three edits ever allowed:
 3. One mechanical punctuation fix: a trailing `;` → `.` if it ends up as the
    very last character after assembly (because the source item wasn't last
    in its original list).
+4. Stripping MGRS-style grid coordinates (e.g. `37U CR 1234 5678`) wherever
+   they appear, including cleanup of any parenthetical group that becomes
+   empty once its coordinates are removed. Coordinates are tactical data
+   with no place in a personnel extract — this is a blanket rule, not
+   conditional on context. See `strip_coordinates()`.
+5. Stripping the phrase "район зосередження" (concentration area) and its
+   grammatical variants (районі, району, зосередженню, ...), including an
+   immediately preceding preposition (у/в/на) so nothing dangles. Same
+   rationale as coordinates — tactical location data, blanket rule. See
+   `strip_location_labels()`.
 
 Nothing else. If you're tempted to have the LLM "clean up" or "reword"
 anything, stop — that's the wrong direction for this project.
@@ -77,12 +87,19 @@ introduce wording drift, because it never gets a chance to output prose.
 5. **Deterministic assembly**: slice the indicated paragraphs, apply exact
    `str.replace()` for each redaction (raises `ValueError` — fail closed —
    if a redaction substring isn't found character-for-character).
-6. **Guardrails** (all added after observing real model failures — see bug
+6. **Coordinate / location-label stripping**: `strip_coordinates()` removes
+   MGRS-style grid coordinates (e.g. `37U CR 1234 5678`), and
+   `strip_location_labels()` removes the phrase "район зосередження" and
+   its grammatical variants — both applied per-paragraph, after redactions
+   (so redaction matching still runs against untouched source text) and
+   before the fragment is joined. Both run unconditionally, always, not
+   just when the content looks out of place.
+7. **Guardrails** (all added after observing real model failures — see bug
    log, do not remove without understanding why they exist):
    - Target's surname must appear in the final assembled text.
    - Context paragraphs must not reference more than one distinct order
      number (regex `№\S+`).
-7. **Punctuation fix**: trailing `;` → `.`, mechanical, nothing else.
+8. **Punctuation fix**: trailing `;` → `.`, mechanical, nothing else.
 
 ## Not yet built
 

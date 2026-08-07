@@ -249,10 +249,58 @@ import re
 
 ORDER_REF_PATTERN = re.compile(r"№\S+")
 
+# MGRS-style grid coordinate, e.g. "37U CR 1234 5678" — zone+band, 100km
+# square, then two equal-length easting/northing digit groups.
+COORDINATE_PATTERN = re.compile(r"\d{1,2}[A-Z]\s[A-Z]{2}\s\d{2,5}\s\d{2,5}")
+
+# "район зосередження" (concentration area) and its grammatical variants
+# (районі, району, зосередженню, ...), with an immediately preceding
+# preposition (у/в/на) swallowed too so no dangling preposition is left.
+LOCATION_LABEL_PATTERN = re.compile(
+    r"(?:[ув]|на)\s+район\w*\s+зосередженн\w*|район\w*\s+зосередженн\w*",
+    re.IGNORECASE,
+)
+
 
 def extract_order_refs(text):
     """Extracts order/directive numbers of the form №БР42/Б3/7Р/ДСК from text."""
     return set(ORDER_REF_PATTERN.findall(text))
+
+
+def strip_coordinates(text):
+    """Removes MGRS-style grid coordinates (e.g. '37U CR 1234 5678'), including
+    semicolon-separated lists of them, from the given text. Coordinates are
+    tactical/operational data and must never appear in the generated
+    extract, regardless of how the source formats them. Also drops any
+    parenthetical group that becomes empty once its coordinates are removed
+    (e.g. 'район зосередження (37U CR 1234 5678; 37U CR 1234 5678)' ->
+    'район зосередження')."""
+    text = COORDINATE_PATTERN.sub("", text)
+
+    def _drop_if_empty(match):
+        inner = match.group(1)
+        return "" if re.fullmatch(r"[\s;]*", inner) else match.group(0)
+
+    text = re.sub(r"\(([^()]*)\)", _drop_if_empty, text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"[ \t]+([,;.):])", r"\1", text)
+    text = re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
+    return text
+
+
+def strip_location_labels(text):
+    """Removes the phrase 'район зосередження' and its grammatical variants
+    (районі, району, зосередженню, ...) from text, swallowing an immediately
+    preceding preposition (у/в/на) so no dangling preposition is left. Like
+    coordinates, this is location/tactical information with no place in a
+    personnel extract — applied unconditionally, not just when it looks
+    out of place."""
+    text = LOCATION_LABEL_PATTERN.sub("", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"[ \t]+([,;.):])", r"\1", text)
+    text = re.sub(r"^[ \t]+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
+    return text
 
 
 def assemble_fragment(paragraphs, pointer):
@@ -301,6 +349,11 @@ def assemble_fragment(paragraphs, pointer):
                 f"VALIDATION ERROR: string to remove was not found verbatim "
                 f"in the selected paragraphs — result REJECTED, manual review needed:\n{r!r}"
             )
+
+    # mechanical strip — coordinates and location labels carry no legal/
+    # identity meaning for the extract and must never leak into the output
+    # (see strip_coordinates, strip_location_labels)
+    parts = [strip_location_labels(strip_coordinates(p)) for p in parts]
 
     fragment_text = "\n\n".join(parts)
 
