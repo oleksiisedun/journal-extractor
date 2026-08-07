@@ -100,6 +100,68 @@ introduce wording drift, because it never gets a chance to output prose.
    - Context paragraphs must not reference more than one distinct order
      number (regex `№\S+`).
 8. **Punctuation fix**: trailing `;` → `.`, mechanical, nothing else.
+9. **Date + time metadata** (deterministic, no LLM — see "Time-of-day
+   extraction" below): `extract_date_from_filename()` parses the day's date
+   from the `.docx` filename (separator between DD/MM/YYYY varies by file —
+   `_`, `.`, or `-`, all seen in real filenames); `assign_time_boundaries()`
+   + `time_for_paragraph()` resolve which time governs the target
+   paragraph, trying the exact inline format first and falling back to the
+   left-column heuristic. `assemble_fragment()` returns a dict
+   (`{"text", "date", "time", "time_confidence"}`), not a bare string.
+
+## Time-of-day extraction
+
+Real files use one of two formats for encoding time — never mixed within a
+single day, in every file seen so far:
+
+**(a) Inline / "easy case"** — a content paragraph itself starts with the
+time (e.g. `'00.00 на виконання БОЙОВОГО РОЗПОРЯДЖЕННЯ ...'`), and the
+left time column is empty. `extract_inline_time()` matches this exactly —
+no guessing, always `"confident"`. This is the common case in
+`journals/ЖБД 10.07.2026.docx` (84 order-intro paragraphs, each with its
+own inline time).
+
+**(b) Left-column / "hard case"** — the narrow left column carries the
+times, and **the two columns are not paragraph-aligned.** Verified
+empirically: in one sample the left column had 217 raw paragraphs (11
+non-empty time labels), the right had 155, and the gaps between
+consecutive time labels (57, 41, 11, 6, 10, 2, 2, 2, 17, 3 paragraph-slots)
+don't track the right column's structure proportionally. A naive
+linear-interpolation mapping from left-column position to right-column
+position landed correctly on real section/list headers for only some
+labels — for the rest it landed **inside a single, homogeneous ~30-person
+list governed by one order**, which would have silently mis-assigned a
+time to real people. Confirmed with the user: this alignment is purely
+visual/eyeballed by whoever typed the document — there is no textual
+convention that recovers it exactly, short of rendering the page
+(LibreOffice → PDF/coordinates), which was deliberately ruled out as too
+heavy for now. Instead, a snap-to-nearest-boundary heuristic is used
+(`is_boundary_paragraph()`, `_assign_time_boundaries_left_column()`):
+1. Only paragraphs that look like a genuine section/list boundary — Roman-
+   numeral headers, lines ending in `:`, or order-reference sentences
+   (`№\S+`) — are ever eligible to receive a time assignment. Ordinary list
+   entries (a single person's line) never qualify. This is what stops a
+   time label from being snapped into the middle of a person list.
+2. Each time label's raw column-0 position is mapped to a proportional cut
+   point in column-1, then **snapped forward** to the nearest eligible
+   boundary paragraph.
+3. A snap is marked `"uncertain"` if it traveled more than a slack
+   threshold (15 raw paragraphs) from its predicted cut point, or if two
+   labels collided on the same boundary (ambiguous which one really
+   governs it — the later, more specific time is kept). `"uncertain"`
+   results must be surfaced to the user, never silently presented as fact
+   — same posture as the surname/order-number guardrails.
+
+`assign_time_boundaries()` is the dispatcher: it tries (a) first (via
+`_assign_time_boundaries_inline()`) and only falls back to (b) if no
+inline time tokens were found in that row's content paragraphs.
+
+**Caveat**: only three real sample files have been checked
+(`journals/ЖБД_02_04_2026.docx`, `ЖБД 10.07.2026.docx`,
+`ЖБД_12-04-2026.docx`). The "column 0 = time, column 1 = content" layout,
+the mutual-exclusivity-per-row assumption between formats (a) and (b), and
+the boundary regexes above are derived from these — re-validate against
+more files rather than assuming they generalize forever.
 
 ## Not yet built
 
@@ -194,12 +256,27 @@ over adding another prompt paragraph when a bug recurs.
 
 ## Known test data
 
-Sample file used throughout development: `ЖБД_02_04_2026.docx`. Two
-useful real test people in it:
+Main sample file used throughout development: `ЖБД_02_04_2026.docx` (date
+2026-04-02, from the filename; left-column time format). Two useful real
+test people in it:
 - `солдат ОРЛЕНКО Олександр Сергійович` — ПВ «БЕРЕГ», paragraph 38,
-  governed by order №БР42/Б3/7Р/ДСК (paragraph 36).
+  governed by order №БР42/Б3/7Р/ДСК (paragraph 36). Time resolves to
+  `00.00`, `confident`.
 - `солдат ОРЛЕНКО Павло Юрійович` — general reserve list, paragraph 97,
-  governed by order №БР47/Б3/7Р/ДСК (paragraph 89).
+  governed by order №БР47/Б3/7Р/ДСК (paragraph 89). Time also resolves to
+  `00.00`, `confident` (its order's own intro paragraph didn't get a direct
+  boundary snap, but it falls in the same still-00:00 period before the
+  day's first real time change).
+
+Two more real sample files, added to exercise the other time format and
+the filename-separator variants (see `journals/`, gitignored):
+- `ЖБД 10.07.2026.docx` (date 2026-07-10, `.` separator) — **inline time
+  format**: empty left column, 84 order-intro paragraphs each carrying its
+  own inline time. Good regression file for `extract_inline_time()`.
+- `ЖБД_12-04-2026.docx` (date 2026-04-12, `-` separator) — left-column
+  format again, larger/messier than the main sample (includes MGRS
+  coordinates in some boundary paragraphs) — useful for stress-testing
+  `is_boundary_paragraph()` beyond the main sample's cleaner structure.
 
 Same surname, different order — this pair is the namesake/disambiguation
 regression test. Keep using it when touching the narrowing logic.

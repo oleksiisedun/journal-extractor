@@ -6,6 +6,10 @@ and rule documentation.
 """
 
 import json
+import os
+import re
+from datetime import date
+
 import requests
 from docx import Document
 
@@ -30,6 +34,77 @@ def load_paragraphs(docx_path):
                         result.append((idx, p.text))
                         idx += 1
     return result
+
+
+def load_paragraph_columns(docx_path):
+    """Column-aware companion to load_paragraphs(), for the time-of-day
+    extraction heuristic (see assign_time_boundaries()). Walks the same
+    table/row/cell structure in the same order, so global indices for
+    column-1 (content) paragraphs match load_paragraphs()'s numbering
+    exactly and can be cross-referenced against an LLM pointer's
+    target_paragraph_index. Also keeps, per row, each paragraph's RAW
+    position within its own cell (including blank paragraphs) for both
+    columns -- the time column visually lines up with wrapped content text
+    via blank filler paragraphs, and that raw position is what the
+    proportional cut-point math in assign_time_boundaries() needs.
+
+    Assumes column 0 = time, column 1 = content, which holds for the one
+    real sample file available so far (journals/ЖБД_02_04_2026.docx) --
+    re-validate against other ЖБД templates if the layout ever differs.
+    """
+    doc = Document(docx_path)
+    rows_out = []
+    idx = 0
+    for table in doc.tables:
+        for row in table.rows:
+            time_labels = []
+            content_paragraphs = []
+            time_raw_count = len(row.cells[0].paragraphs) if row.cells else 0
+            content_raw_count = len(row.cells[1].paragraphs) if len(row.cells) > 1 else 0
+            for col, cell in enumerate(row.cells):
+                for raw_idx, p in enumerate(cell.paragraphs):
+                    if not p.text.strip():
+                        continue
+                    if col == 0:
+                        time_labels.append((raw_idx, p.text))
+                    elif col == 1:
+                        content_paragraphs.append((idx, raw_idx, p.text))
+                    idx += 1
+            rows_out.append({
+                "time_labels": time_labels,              # [(raw_col0_idx, text)]
+                "time_raw_count": time_raw_count,         # len(cell[0].paragraphs), incl. blanks
+                "content_paragraphs": content_paragraphs, # [(global_idx, raw_col1_idx, text)]
+                "content_raw_count": content_raw_count,   # len(cell[1].paragraphs), incl. blanks
+            })
+    return rows_out
+
+
+FILENAME_DATE_PATTERN = re.compile(r"(\d{2})[_.\-](\d{2})[_.\-](\d{4})")
+
+
+def extract_date_from_filename(docx_path):
+    """Extracts the day's date from a ЖБД filename (e.g. 'ЖБД_02_04_2026.docx',
+    'ЖБД 10.07.2026.docx', 'ЖБД_12-04-2026.docx' -> 2026-04-02 / 2026-07-10 /
+    2026-04-12, Ukrainian day-first convention). The separator between the
+    DD/MM/YYYY groups varies by file (seen so far: '_', '.', '-') and isn't
+    required to be consistent within one filename. Fails loud (ValueError)
+    rather than silently returning no date, since a wrong or missing date
+    would misattribute every fragment extracted from this file."""
+    basename = os.path.basename(docx_path)
+    match = FILENAME_DATE_PATTERN.search(basename)
+    if not match:
+        raise ValueError(
+            f"Could not find a DD_MM_YYYY date in filename: {basename!r} "
+            f"(expected a pattern like 'ЖБД_02_04_2026.docx')"
+        )
+    day, month, year = (int(g) for g in match.groups())
+    try:
+        return date(year, month, day)
+    except ValueError as e:
+        raise ValueError(
+            f"Filename {basename!r} encodes an invalid calendar date "
+            f"(day={day}, month={month}, year={year}): {e}"
+        ) from e
 
 
 def find_candidate_windows(paragraphs, surname, window=8):
@@ -231,8 +306,6 @@ def ask_llm(paragraphs, rank_and_name):
 
 # ---------- STEPS 3-5: Deterministic assembly + validation (no LLM) ----------
 
-import re
-
 ORDER_REF_PATTERN = re.compile(r"№\S+")
 
 # MGRS-style grid coordinate, e.g. "37U CR 1234 5678" — zone+band, 100km
@@ -251,6 +324,149 @@ LOCATION_LABEL_PATTERN = re.compile(
 def extract_order_refs(text):
     """Extracts order/directive numbers of the form №БР42/Б3/7Р/ДСК from text."""
     return set(ORDER_REF_PATTERN.findall(text))
+
+
+# ---------- Time-of-day extraction (no LLM) ----------
+#
+# Two formats seen in real files, apparently never mixed within one day:
+# (a) "easy" / inline — a content paragraph itself starts with the time
+#     (e.g. '00.00 на виконання БОЙОВОГО РОЗПОРЯДЖЕННЯ ...'), and the time
+#     column is empty. This is exact/verbatim-derived — no guessing needed.
+# (b) "hard" / left-column — the narrow left column carries the times, NOT
+#     paragraph-aligned with the content column at all — verified
+#     empirically: gaps between consecutive left-column time labels don't
+#     track the content column's structure proportionally. A naive
+#     proportional mapping lands correctly on real section/list headers
+#     some of the time, but for the rest it lands INSIDE a single,
+#     homogeneous list of people governed by one order — which would
+#     silently mis-assign a time to real people. Handled with a
+#     snap-to-nearest-boundary heuristic below; only used when (a) finds
+#     nothing in a row. Assumes column 0 = time, column 1 = content.
+
+ROMAN_HEADER_PATTERN = re.compile(r"^[IVXІ]+\.")
+
+INLINE_TIME_PATTERN = re.compile(r"^(\d{2}\.\d{2}(?:-\d{2}\.\d{2})?)\b")
+
+
+def extract_inline_time(text):
+    """Returns the time token at the very start of a content paragraph
+    (e.g. '00.00' from '00.00 на виконання ...', or '05.00-06.40' from a
+    ranged form), or None if the paragraph doesn't start with one. This is
+    the "easy case": exact, verbatim-derived, no heuristic guessing."""
+    match = INLINE_TIME_PATTERN.match(text.strip())
+    return match.group(1) if match else None
+
+
+def is_boundary_paragraph(text):
+    """A content paragraph is a plausible time-boundary point if it's a
+    Roman-numeral section header, a list/section-intro line ending in ':'
+    (e.g. 'на ПВ «БРАВО»:'), or an order-reference sentence (matches
+    ORDER_REF_PATTERN). Ordinary list entries (a single person's line)
+    never qualify — that's what stops a time label from being snapped into
+    the middle of a person list."""
+    stripped = text.strip()
+    return bool(
+        ROMAN_HEADER_PATTERN.match(stripped)
+        or stripped.endswith(":")
+        or ORDER_REF_PATTERN.search(stripped)
+    )
+
+
+def _assign_time_boundaries_inline(content_paragraphs):
+    """The "easy case": content paragraphs that themselves start with a
+    time token. Exact and verbatim-derived, so always "confident"."""
+    return [
+        (global_idx, extract_inline_time(text), "confident")
+        for global_idx, raw_idx, text in sorted(content_paragraphs, key=lambda t: t[0])
+        if extract_inline_time(text)
+    ]
+
+
+def _assign_time_boundaries_left_column(row, slack):
+    """The "hard case": snap-to-nearest-boundary heuristic over the left
+    time column. See the module-level comment above for why this can't be
+    an exact lookup. For each time label, a proportional cut point is
+    computed from its raw position in the (blank-padded) time column, then
+    snapped FORWARD to the nearest boundary-classified content paragraph.
+    A label is "uncertain" if that snap traveled more than `slack` raw
+    paragraphs from its predicted cut point, or if it collided with the
+    same boundary as the previous label (in which case only the later,
+    more specific time is kept — we can't tell which of the two genuinely
+    governs that point)."""
+    time_labels = row["time_labels"]
+    left_raw_count = row["time_raw_count"]
+    content_paragraphs = row["content_paragraphs"]
+    right_raw_count = row["content_raw_count"]
+    if not time_labels or left_raw_count <= 1 or right_raw_count <= 1:
+        return []
+
+    boundary_candidates = sorted(
+        (raw_idx, global_idx)
+        for global_idx, raw_idx, text in content_paragraphs
+        if is_boundary_paragraph(text)
+    )
+
+    raw_assignments = []
+    for label_raw_idx, time_value in time_labels:
+        cut_point = round(
+            label_raw_idx / (left_raw_count - 1) * (right_raw_count - 1)
+        )
+        snapped = next((b for b in boundary_candidates if b[0] >= cut_point), None)
+        if snapped is None:
+            continue  # no boundary left to snap to — this label can't be placed
+        snapped_raw_idx, snapped_global_idx = snapped
+        confident = abs(snapped_raw_idx - cut_point) <= slack
+        raw_assignments.append([snapped_global_idx, time_value, confident])
+
+    collapsed = []
+    for global_idx, time_value, confident in raw_assignments:
+        if collapsed and collapsed[-1][0] == global_idx:
+            # two labels snapped to the same boundary — ambiguous which one
+            # actually governs it; keep the later (more specific) time
+            collapsed[-1] = [global_idx, time_value, False]
+        else:
+            collapsed.append([global_idx, time_value, confident])
+
+    return [
+        (global_idx, time_value, "confident" if confident else "uncertain")
+        for global_idx, time_value, confident in collapsed
+    ]
+
+
+def assign_time_boundaries(row, slack=15):
+    """Deterministically maps a table row's time information onto its
+    content-column paragraphs. Returns an ascending list of
+    (global_content_index, time_value, confidence) tuples, where
+    confidence is "confident" or "uncertain" — never silently asserts a
+    time it isn't reasonably sure about (same posture as the surname/
+    order-number guardrails in assemble_fragment()).
+
+    Tries the inline ("easy case") format first — see
+    _assign_time_boundaries_inline() — and only falls back to the
+    left-column heuristic (_assign_time_boundaries_left_column()) if no
+    inline time tokens were found in this row's content. The two formats
+    are assumed mutually exclusive within a single row/day, matching every
+    real file seen so far; re-check this assumption if a file ever mixes
+    them.
+    """
+    inline = _assign_time_boundaries_inline(row["content_paragraphs"])
+    if inline:
+        return inline
+    return _assign_time_boundaries_left_column(row, slack)
+
+
+def time_for_paragraph(boundaries, target_global_idx):
+    """Looks up the (time_value, confidence) governing a given global
+    content paragraph index: the boundary assignment with the largest
+    global_content_index <= target_global_idx. Returns None if the target
+    occurs before any boundary was assigned (time genuinely unknown)."""
+    result = None
+    for global_idx, time_value, confidence in boundaries:
+        if global_idx <= target_global_idx:
+            result = (time_value, confidence)
+        else:
+            break
+    return result
 
 
 def strip_coordinates(text):
@@ -289,10 +505,14 @@ def strip_location_labels(text):
     return text
 
 
-def assemble_fragment(paragraphs, pointer):
+def assemble_fragment(paragraphs, pointer, date_value=None, time_boundaries=None):
     """Deterministically assembles the final fragment from the LLM's pointer
     — slices source text, applies redactions, runs guardrails, applies the
-    one allowed punctuation fix."""
+    one allowed punctuation fix. Also attaches the day's date (from the
+    filename, via extract_date_from_filename()) and the heuristically
+    assigned time (via assign_time_boundaries() + time_for_paragraph()) —
+    both deterministic, no LLM involvement. Returns a dict, not a bare
+    string, since date/time metadata rides along with the text."""
     para_dict = dict(paragraphs)
 
     if not pointer["found"]:
@@ -358,7 +578,16 @@ def assemble_fragment(paragraphs, pointer):
     stripped = fragment_text.rstrip()
     if stripped.endswith(";"):
         stripped = stripped[:-1] + "."
-    return stripped
+
+    time_result = time_for_paragraph(time_boundaries, target_index) if time_boundaries else None
+    time_value, time_confidence = time_result if time_result else (None, "uncertain")
+
+    return {
+        "text": stripped,
+        "date": date_value,
+        "time": time_value,
+        "time_confidence": time_confidence,
+    }
 
 
 # ---------- TEST RUN ----------
@@ -375,6 +604,16 @@ def extract_surname(rank_and_name):
 if __name__ == "__main__":
     all_paragraphs = load_paragraphs(ZHBD_PATH)
     print(f"Завантажено параграфів: {len(all_paragraphs)}\n")
+
+    day_date = extract_date_from_filename(ZHBD_PATH)
+
+    # find the table row that actually holds the day's content (the one
+    # with the most content paragraphs) and derive its time boundaries —
+    # see assign_time_boundaries() for why this is heuristic/best-effort
+    columns = load_paragraph_columns(ZHBD_PATH)
+    content_row = max(columns, key=lambda r: len(r["content_paragraphs"]))
+    time_boundaries = assign_time_boundaries(content_row)
+    print(f"Дата: {day_date.isoformat()}    Знайдено часових міток: {len(time_boundaries)}\n")
 
     test_cases = [
         "солдат ОРЛЕНКО Олександр Сергійович",   # present in the document (ПВ «БЕРЕГ»)
@@ -431,7 +670,12 @@ if __name__ == "__main__":
             print(">>> Не знайдено в цьому дні (перевір вручну — гепи не пропускаємо мовчки)")
             continue
 
-        fragment = assemble_fragment(all_paragraphs, pointer)
+        result = assemble_fragment(
+            all_paragraphs, pointer,
+            date_value=day_date, time_boundaries=time_boundaries,
+        )
+        time_note = "" if result["time_confidence"] == "confident" else "  [!! ЧАС НЕВИЗНАЧЕНИЙ/НЕТОЧНИЙ — перевірити вручну !!]"
+        print(f">>> Дата: {result['date'].isoformat()}    Час: {result['time']}{time_note}")
         print(">>> ЗІБРАНИЙ ФРАГМЕНТ (дослівно з джерела):")
-        print(fragment)
+        print(result["text"])
         print()
