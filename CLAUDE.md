@@ -256,17 +256,19 @@ over adding another prompt paragraph when a bug recurs.
 
 ## Known test data
 
+Real person names, ranks, paragraph indices, and order numbers used for
+local regression testing live in `local_test_data.py` (gitignored — never
+commit this file; `run_demo.py` imports `TEST_CASES` from it when present
+and falls back to fictional placeholder names otherwise). This keeps real
+personnel data out of git while `journals/` (also gitignored) still holds
+the source `.docx` files.
+
 Main sample file used throughout development: `ЖБД_02_04_2026.docx` (date
-2026-04-02, from the filename; left-column time format). Two useful real
-test people in it:
-- `солдат ОРЛЕНКО Олександр Сергійович` — ПВ «БЕРЕГ», paragraph 38,
-  governed by order №БР42/Б3/7Р/ДСК (paragraph 36). Time resolves to
-  `00.00`, `confident`.
-- `солдат ОРЛЕНКО Павло Юрійович` — general reserve list, paragraph 97,
-  governed by order №БР47/Б3/7Р/ДСК (paragraph 89). Time also resolves to
-  `00.00`, `confident` (its order's own intro paragraph didn't get a direct
-  boundary snap, but it falls in the same still-00:00 period before the
-  day's first real time change).
+2026-04-02, from the filename; left-column time format). It contains a
+same-surname/different-order pair — two people sharing one surname, each
+governed by a different order — which is the namesake/disambiguation
+regression test; keep using it when touching the narrowing logic. See
+`local_test_data.py` for the exact names/paragraph indices/order numbers.
 
 Two more real sample files, added to exercise the other time format and
 the filename-separator variants (see `journals/`, gitignored):
@@ -277,9 +279,6 @@ the filename-separator variants (see `journals/`, gitignored):
   format again, larger/messier than the main sample (includes MGRS
   coordinates in some boundary paragraphs) — useful for stress-testing
   `is_boundary_paragraph()` beyond the main sample's cleaner structure.
-
-Same surname, different order — this pair is the namesake/disambiguation
-regression test. Keep using it when touching the narrowing logic.
 
 ## Style/conventions in the existing code
 

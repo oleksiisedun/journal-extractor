@@ -27,11 +27,18 @@ def main():
     time_boundaries = assign_time_boundaries(content_row)
     print(f"Дата: {day_date.isoformat()}    Знайдено часових міток: {len(time_boundaries)}\n")
 
-    test_cases = [
-        "солдат ОРЛЕНКО Олександр Сергійович",   # present in the document (ПВ «БЕРЕГ»)
-        "солдат ОРЛЕНКО Павло Юрійович",          # namesake with a different first name (reserve) — disambiguation test
-        "сержант НЕІСНУЮЧИЙ Іван Іванович",        # found=false test
-    ]
+    try:
+        # real names from the actual sample files — gitignored, see
+        # local_test_data.py's docstring for how to set it up locally
+        from local_test_data import TEST_CASES as test_cases
+    except ImportError:
+        # fictional placeholders; won't match anything in a real journals/
+        # file, but keep the demo runnable in a fresh clone
+        test_cases = [
+            "солдат ОРЛЕНКО Максим Ігорович",
+            "солдат ОРЛЕНКО Богдан Юрійович",
+            "сержант НЕІСНУЮЧИЙ Іван Іванович",   # found=false test
+        ]
 
     for person in test_cases:
         print("=" * 70)
