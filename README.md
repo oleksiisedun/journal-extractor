@@ -32,7 +32,7 @@ down to a small candidate window *before* the LLM ever sees it — this is
 what prevents namesakes governed by different orders from being mixed
 together, and lets the LLM call be skipped entirely when the person isn't
 in that day at all. Before the LLM call, `find_preceding_order_paragraph()`
-and `find_immediate_label_header()` also walk backward from the target to
+and `find_preceding_label_header()` also walk backward from the target to
 locate the governing order and any immediate call-sign/position header —
 which can sit outside the ±8 window (e.g. one order heading a long list of
 many groups) — and force them into the final context regardless of what
@@ -62,7 +62,7 @@ graph TD
   subgraph Prefilter["Deterministic prefilter — no LLM"]
     Load --> Surname["find_candidate_windows()\nsurname match, ±8 paragraphs"]
     Surname --> Narrow["filter_windows_by_full_name()\ndisambiguate namesakes"]
-    Narrow --> Forced["find_preceding_order_paragraph()\nfind_immediate_label_header()\nlocate governing order + label,\neven outside the ±8 window"]
+    Narrow --> Forced["find_preceding_order_paragraph()\nfind_preceding_label_header()\nlocate governing order + label,\neven outside the ±8 window"]
   end
 
   Narrow -->|no surname hits| NotFound["found: false\n(LLM never called)"]

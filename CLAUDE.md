@@ -90,21 +90,23 @@ introduce wording drift, because it never gets a chance to output prose.
    picks the first or last occurrence in the file per
    `FULL_NAME_AMBIGUITY_STRATEGY` in `config.py`.
 4. **Forced deterministic context** (deterministic, no LLM — `run_demo.py`,
-   `find_preceding_order_paragraph()` + `find_immediate_label_header()` in
+   `find_preceding_order_paragraph()` + `find_preceding_label_header()` in
    `prefilter.py`): before the LLM call, walk backward from the full-name
    anchor paragraph for (a) the nearest preceding paragraph matching
    `ORDER_REF_PATTERN` — this can be dozens of paragraphs outside the ±8
    window, e.g. one order heading a long composition list of many
-   call-sign groups — and (b) the immediately preceding paragraph if it
-   looks like a position/call-sign label (contains `«»` guillemets or ends
-   in `:`, never seen in a bare personnel line across any sample file).
-   Both are merged into `context_paragraph_indices` after the LLM call
-   regardless of what the LLM itself returned — found empirically that the
-   LLM would still drop the label paragraph even when it was already
-   visible in-window and a prompt rule asked for it explicitly (see bug
-   log). This mirrors the project's established pattern: prefer moving a
-   recurring failure out of the model's hands entirely over asking it more
-   firmly in the prompt.
+   call-sign groups — and (b) the nearest preceding position/call-sign/
+   group label (contains `«»` guillemets or ends in `:`, or — weaker,
+   only trusted immediately adjacent — has no bare surname-like token at
+   all), skipping over any of the target's fellow list members along the
+   way since the target isn't always the first person listed under their
+   label. Both are merged into `context_paragraph_indices` after the LLM
+   call regardless of what the LLM itself returned — found empirically
+   that the LLM would still drop the label paragraph even when it was
+   already visible in-window and a prompt rule asked for it explicitly
+   (see bug log). This mirrors the project's established pattern: prefer
+   moving a recurring failure out of the model's hands entirely over
+   asking it more firmly in the prompt.
 5. **LLM call** (Ollama, local): given the (usually single, ~10-paragraph)
    candidate window, returns the pointer JSON above. See "LLM config"
    below for the non-obvious settings this depends on.
@@ -315,7 +317,7 @@ against these exact cases before considering it done.
    call-sign/position labels lacking trailing punctuation. Confirmed at
    temperature 0 across reruns: prompting alone did not change the output.
    Fixed both, deterministically, in `prefilter.py` —
-   `find_preceding_order_paragraph()` and `find_immediate_label_header()`
+   `find_preceding_order_paragraph()` and `find_preceding_label_header()`
    walk backward from the full-name anchor paragraph for (a) the nearest
    preceding `ORDER_REF_PATTERN` match regardless of distance, and (b) an
    immediately preceding line containing `«»` guillemets or ending in `:`
@@ -339,14 +341,14 @@ against these exact cases before considering it done.
    `/` in the matched token via a lookahead — this also fixes a latent
    false-positive risk in `assembly.py`'s multi-order guardrail, which
    used the same pattern. A second, narrower gap: paragraph 124 itself
-   (the "Група №2" label) has neither of `find_immediate_label_header()`'s
+   (the "Група №2" label) has neither of `find_preceding_label_header()`'s
    two signals (no `«»`, no trailing `:`), so it wasn't forced in either,
    and the LLM dropped it from context on its own — same shape as the
    `СЗМ «ФЛЕШ»` gap in item 6. Verified this "group label with neither
    signal" shape recurs across two different sample files (`Група №N`,
    lowercase `група N`, `Інженерно-саперна група №N`), so it's a real
    pattern, not a one-off. Fixed by adding a fallback signal to
-   `find_immediate_label_header()`: a bare (non-quoted) run of 3+ uppercase
+   `find_preceding_label_header()`: a bare (non-quoted) run of 3+ uppercase
    Cyrillic letters is the shape every real surname has, so a preceding
    line WITHOUT one outside any `«»` quoting is safe to treat as a label
    rather than another person's own paragraph — worst case if this signal
@@ -363,8 +365,28 @@ against these exact cases before considering it done.
    tactical data with no place in a personnel extract). Fixed by adding
    `COORDINATE_LABEL_PATTERN` to `strip_coordinates()` (`assembly.py`),
    applied after the parenthetical cleanup, not as a separate rule.
+9. **Label header separated from the target by another person's own
+   paragraph.** Real case (`ЖБД_12-04-2026.docx`, ЧЕРЕДНІЧЕНКО Олександр
+   Іванович): target at paragraph 168, but the governing label — "Пост
+   повітряного прикриття № 2 (37U CR 15021 60370):" at paragraph 166 — is
+   two paragraphs back, not one, because paragraph 167 is a DIFFERENT
+   person (ОГУЛА) listed first under the same label. The original
+   `find_immediate_label_header()` only ever checked the single
+   immediately preceding paragraph, so it never found 166 at all — item 6
+   and 7's fix worked when the target was the FIRST person under their
+   label, not otherwise. Fixed by generalizing it into
+   `find_preceding_label_header()`: it now walks backward from the target,
+   skipping over any paragraph that looks like another person's own (has a
+   bare surname-like token), down to `find_preceding_order_paragraph()`'s
+   result as a lower bound — mirroring context_paragraph_indices' own
+   documented semantics ("Not necessarily contiguous with the target --
+   there can be a long run of other people's own paragraphs in between").
+   The weaker no-surname fallback signal (item 6) is intentionally NOT
+   extended across this walk — it only fires when directly adjacent to the
+   target, to avoid guessing on some distant, ambiguous line; only the
+   strong guillemet/colon signal is trusted across the skip.
 
-**Pattern across items 1-8**: the fixes that actually held up were the ones
+**Pattern across items 1-9**: the fixes that actually held up were the ones
 that removed the need for the model to get something right, not the ones
 that just asked it more firmly. Prefer restructuring the schema/pipeline
 over adding another prompt paragraph when a bug recurs.

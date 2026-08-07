@@ -113,19 +113,30 @@ def find_preceding_order_paragraph(paragraphs, anchor_index):
 # real personnel surname always has (see extract_surname()). Used to tell a
 # group/list sub-header apart from another person's own paragraph when
 # neither the guillemet nor colon signal is present (see
-# find_immediate_label_header()).
+# find_preceding_label_header()).
 SURNAME_LIKE_PATTERN = re.compile(r"[А-ЯЁІЇЄҐ]{3,}")
 QUOTED_LABEL_PATTERN = re.compile(r"«[^»]*»")
 
 
-def find_immediate_label_header(paragraphs, anchor_index):
-    """Returns the index of the paragraph immediately preceding
-    `anchor_index` if it looks like a position/call-sign/group label header
-    -- rather than an ordinary content/personnel line. Two signals, checked
-    in order:
+def find_preceding_label_header(paragraphs, anchor_index, lower_bound=0):
+    """Walks backward from `anchor_index` (exclusive) down to `lower_bound`
+    (exclusive -- normally find_preceding_order_paragraph()'s result, so
+    the search never wanders into an earlier, unrelated section) for the
+    nearest paragraph that looks like a position/call-sign/group label
+    header, skipping over OTHER people's own paragraphs along the way --
+    the target isn't always the first person listed under their label (e.g.
+    'Пост повітряного прикриття № 2:' followed by two people, the target
+    being the second). This mirrors context_paragraph_indices' own
+    semantics (CLAUDE.md: 'Not necessarily contiguous with the target --
+    there can be a long run of other people's own paragraphs in between,
+    and that gap is simply skipped').
+
+    Two signals for "this is a label", checked per paragraph:
     1. Quoted in « » guillemets (e.g. 'СЗМ «ФЛЕШ»') or ending in ':' (e.g.
-       'на ПВ «БЕРЕГ»:', 'Виведено:'). Real personnel entries never contain
-       guillemets or end in ':' (verified across all sample files).
+       'на ПВ «БЕРЕГ»:', 'Пост повітряного прикриття № 2 (...):'). Real
+       personnel entries never contain guillemets or end in ':' (verified
+       across all sample files) -- strong enough to trust across the whole
+       walk, skipping over any other people's paragraphs first.
     2. Fallback for labels with NEITHER signal -- e.g. 'Група №2 за
        координатами (...)', lowercase 'група 1', 'Інженерно-саперна група
        №1' (verified as a recurring pattern across two different sample
@@ -133,24 +144,27 @@ def find_immediate_label_header(paragraphs, anchor_index):
        surname in bare ALL CAPS, so the absence of one outside any «»
        quoting (call-sign text like 'ФЛЕШ' is also all-caps but IS quoted)
        is a safe signal this is a label, not another person's own
-       paragraph. Worst case if this signal is too loose is a missed
-       force-include (falls back to trusting the LLM, same as before this
-       function existed) -- never a wrongly forced-in person's name.
+       paragraph -- but weaker than signal 1, so only trusted when
+       immediately adjacent to the target (never after skipping over
+       someone else first), to avoid guessing on a distant, ambiguous line.
+
     This complements find_preceding_order_paragraph(), which can land far
     back and miss an immediate sub-header the target sits directly under
     (found empirically: the LLM was given a label already in-window and
     still didn't select it as context even after a prompt clarification --
-    see CLAUDE.md bug log). Returns None if the previous paragraph doesn't
-    look like a header, or anchor_index is 0."""
-    if anchor_index <= 0:
-        return None
+    see CLAUDE.md bug log). Returns None if nothing matches before
+    `lower_bound`."""
     para_dict = dict(paragraphs)
-    text = para_dict[anchor_index - 1].strip()
-    if not text:
-        return None
-    if "«" in text or "»" in text or text.endswith(":"):
-        return anchor_index - 1
-    without_quotes = QUOTED_LABEL_PATTERN.sub("", text)
-    if not SURNAME_LIKE_PATTERN.search(without_quotes):
-        return anchor_index - 1
+    for i in range(anchor_index - 1, lower_bound, -1):
+        text = para_dict[i].strip()
+        if not text:
+            continue
+        if "«" in text or "»" in text or text.endswith(":"):
+            return i
+        without_quotes = QUOTED_LABEL_PATTERN.sub("", text)
+        if SURNAME_LIKE_PATTERN.search(without_quotes):
+            continue  # someone else's own paragraph -- skip over it, keep walking back
+        if i == anchor_index - 1:
+            return i  # weak (no-surname) fallback only trusted when directly adjacent
+        return None  # ambiguous line further back with neither strong signal nor a name -- stop rather than guess
     return None

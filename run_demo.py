@@ -17,7 +17,7 @@ from prefilter import (
     filter_windows_by_full_name,
     find_candidate_windows,
     find_full_name_paragraph,
-    find_immediate_label_header,
+    find_preceding_label_header,
     find_preceding_order_paragraph,
     select_ambiguous_window,
 )
@@ -128,7 +128,7 @@ def main():
                         candidate_paragraphs.append((order_idx, dict(all_paragraphs)[order_idx]))
                         note += f"; додано керівний параграф-наказ [{order_idx}] поза вікном"
 
-                label_idx = find_immediate_label_header(all_paragraphs, anchor)
+                label_idx = find_preceding_label_header(all_paragraphs, anchor, order_idx or 0)
                 if label_idx is not None:
                     forced_context.add(label_idx)
                     if label_idx not in seen:
