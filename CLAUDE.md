@@ -1,18 +1,18 @@
-# ЖБД Extract Generator — Project Context
+# Combat Log Extract Generator — Project Context
 
 ## What this is
 
 A pipeline that automatically generates official "витяг" (extract) documents
-from ЖБД (Ukrainian military combat log) records for a specific
+from combat log records for a specific
 serviceman over a date range, sourced from per-day `.docx` files.
 
-Source documents carry a "ДСК" (restricted/internal-use) classification and
+Source documents carry a restricted (internal-use) classification and
 contain real personnel names, ranks, unit positions, and order numbers.
 **This must stay fully local/offline — no cloud LLM calls, no telemetry.**
 
 ## The one rule everything else follows
 
-**The output text must be 100% verbatim from the source ЖБД. Zero
+**The output text must be 100% verbatim from the source combat log. Zero
 paraphrasing, zero rewriting, zero "smoothing" of style.** This is an
 official document — invented or reworded text is not an acceptable failure
 mode, ever.
@@ -214,7 +214,7 @@ query is acceptable.
 ## Bug log (empirically found — read before touching the prompt or schema)
 
 Each of these was found by running real queries against the real sample
-ЖБД file, not by inspection. If you change the prompt or schema, re-run
+combat log file, not by inspection. If you change the prompt or schema, re-run
 against these exact cases before considering it done.
 
 1. **Model redacted the target's own name.** Given a person who was the
@@ -288,7 +288,7 @@ regression test. Keep using it when touching the narrowing logic.
   should probably split into modules (parsing / prefilter / llm client /
   assembly+guardrails / docx rendering) once the batch driver is added.
 - Code comments (and docstrings) are English, matching the LLM system
-  prompt — the actual document text/data (ЖБД source content, test names,
+  prompt — the actual document text/data (combat log source content, test names,
   runtime console output) stays Ukrainian since it's being extracted
   verbatim, not translated.
 - Every new failure mode found through testing should get: (1) a guardrail

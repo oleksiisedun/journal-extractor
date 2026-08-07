@@ -1,15 +1,15 @@
-# ЖБД Extract Generator
+# Combat Log Extract Generator
 
-A pipeline that generates official "витяг" (extract) documents from ЖБД
-(Ukrainian military combat log) records for a specific serviceman over a
-date range, sourced from per-day `.docx` files.
+A pipeline that generates official "витяг" (extract) documents from combat
+log records for a specific serviceman over a date range, sourced from
+per-day `.docx` files.
 
-Source documents carry a "ДСК" (restricted/internal-use) classification.
+Source documents carry a restricted (internal-use) classification.
 **Everything runs fully local/offline — no cloud LLM calls, no telemetry.**
 
 ## Core principle
 
-The output text must be **100% verbatim** from the source ЖБД — zero
+The output text must be **100% verbatim** from the source combat log — zero
 paraphrasing, zero rewriting. To guarantee this structurally rather than by
 hoping the model behaves, the LLM never writes the final text. It only
 returns *pointers* into a numbered paragraph list (which paragraphs to
@@ -48,9 +48,9 @@ guessed.
 
 ```mermaid
 graph TD
-  ZHBD[(".docx"\nЖБД source)] --> Load["load_paragraphs()\nindexed, verbatim"]
-  ZHBD --> Filename["extract_date_from_filename()"]
-  ZHBD --> Cols["load_paragraph_columns()\ntime column + content column"]
+  CombatLog[(".docx"\ncombat log source)] --> Load["load_paragraphs()\nindexed, verbatim"]
+  CombatLog --> Filename["extract_date_from_filename()"]
+  CombatLog --> Cols["load_paragraph_columns()\ntime column + content column"]
 
   subgraph Prefilter["Deterministic prefilter — no LLM"]
     Load --> Surname["find_candidate_windows()\nsurname match, ±8 paragraphs"]
@@ -119,10 +119,11 @@ pip install python-docx requests --break-system-packages
 
 **4. Provide a source file**
 
-Place a daily `.docx` ЖБД file in the `journals/` folder (or point
-`ZHBD_PATH` in `test_vytyah_extraction.py` at it). Sample вityah documents
-go in `samples/`. Both `journals/` and `samples/` are gitignored — the
-source and sample content is ДСК-classified and must never be committed.
+Place a daily `.docx` combat log file in the `journals/` folder (or point
+`COMBAT_LOG_PATH` in `test_vytyah_extraction.py` at it). Sample вityah
+documents go in `samples/`. Both `journals/` and `samples/` are gitignored
+— the source and sample content carries a restricted classification and
+must never be committed.
 
 ## Running
 

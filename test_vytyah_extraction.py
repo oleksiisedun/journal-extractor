@@ -1,5 +1,5 @@
 """
-Mini test of a local LLM for generating ЖБД (combat log) extracts.
+Mini test of a local LLM for generating combat log extracts.
 
 See README.md for setup/run instructions and CLAUDE.md for full pipeline
 and rule documentation.
@@ -16,7 +16,7 @@ from docx import Document
 # ---------- SETTINGS ----------
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:8b-q8_0"          # switch to "qwen3:8b" for faster/lighter
-ZHBD_PATH = "journals/ЖБД_02_04_2026.docx"  # path to the daily ЖБД file
+COMBAT_LOG_PATH = "journals/ЖБД_02_04_2026.docx"  # path to the daily combat log file
 
 # ---------- STEP 1: Parse the source (no LLM) ----------
 
@@ -50,7 +50,7 @@ def load_paragraph_columns(docx_path):
 
     Assumes column 0 = time, column 1 = content, which holds for the one
     real sample file available so far (journals/ЖБД_02_04_2026.docx) --
-    re-validate against other ЖБД templates if the layout ever differs.
+    re-validate against other combat log templates if the layout ever differs.
     """
     doc = Document(docx_path)
     rows_out = []
@@ -83,7 +83,7 @@ FILENAME_DATE_PATTERN = re.compile(r"(\d{2})[_.\-](\d{2})[_.\-](\d{4})")
 
 
 def extract_date_from_filename(docx_path):
-    """Extracts the day's date from a ЖБД filename (e.g. 'ЖБД_02_04_2026.docx',
+    """Extracts the day's date from a combat log filename (e.g. 'ЖБД_02_04_2026.docx',
     'ЖБД 10.07.2026.docx', 'ЖБД_12-04-2026.docx' -> 2026-04-02 / 2026-07-10 /
     2026-04-12, Ukrainian day-first convention). The separator between the
     DD/MM/YYYY groups varies by file (seen so far: '_', '.', '-') and isn't
@@ -159,7 +159,7 @@ def filter_windows_by_full_name(paragraphs, windows, full_name):
 # ---------- STEP 2: LLM query (only "where", never "what") ----------
 
 SYSTEM_PROMPT = """You locate the mention of ONE specific person in a numbered list of
-paragraphs from a single day of a ЖБД (military combat log).
+paragraphs from a single day of a combat log.
 
 You are given: rank + full name of the person to find, and a numbered list
 of paragraphs.
@@ -608,15 +608,15 @@ def extract_surname(rank_and_name):
 
 
 if __name__ == "__main__":
-    all_paragraphs = load_paragraphs(ZHBD_PATH)
+    all_paragraphs = load_paragraphs(COMBAT_LOG_PATH)
     print(f"Завантажено параграфів: {len(all_paragraphs)}\n")
 
-    day_date = extract_date_from_filename(ZHBD_PATH)
+    day_date = extract_date_from_filename(COMBAT_LOG_PATH)
 
     # find the table row that actually holds the day's content (the one
     # with the most content paragraphs) and derive its time boundaries —
     # see assign_time_boundaries() for why this is heuristic/best-effort
-    columns = load_paragraph_columns(ZHBD_PATH)
+    columns = load_paragraph_columns(COMBAT_LOG_PATH)
     content_row = max(columns, key=lambda r: len(r["content_paragraphs"]))
     time_boundaries = assign_time_boundaries(content_row)
     print(f"Дата: {day_date.isoformat()}    Знайдено часових міток: {len(time_boundaries)}\n")
