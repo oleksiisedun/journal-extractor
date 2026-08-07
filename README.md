@@ -89,6 +89,12 @@ Not yet built: cross-day merging into date ranges, a batch driver over a
 folder of daily files, rendering into the actual вityah `.docx` template,
 and a tracked accuracy benchmark. See `CLAUDE.md` for details.
 
+**No actual extract `.docx` file is produced yet.** `run_demo.py` only
+prints the assembled fragment (text + date + time) to the console — there
+is no code that writes a `.docx` matching the real extract template's
+header/table/signature-block layout. Producing that output file is still
+open work.
+
 ## Setup
 
 **1. Install Ollama**
