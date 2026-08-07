@@ -55,10 +55,10 @@ point to WHERE things are, not to write text yourself.
 --- EXAMPLE 1: target is the first person right after a section header ---
 [36] на виконання БР командира 7 обр (на бмп) 2 боп 15 обр «СОКІЛ» №БР42/Б3/7Р/ДСК від 15.02.26, продовжують стійко утримувати зайняті рубежі оборони в районі ВЕРБОВЕ, СОСНІВКА, Полтавської громади, Полтавського району, Полтавської області, не допускають раптових дії противника на лінії бойового зіткнення з противником в першому ешелоні оборони:
 [37] на ПВ «БЕРЕГ»:
-[38] солдат ОРЛЕНКО Олександр Сергійович;
-[39] солдат ПЕТРЕНКО Едуард Дмитрович;
+[38] солдат ОРЛЕНКО Максим Ігорович;
+[39] солдат ПЕТРЕНКО Віталій Олегович;
 
-Query: "солдат ОРЛЕНКО Олександр Сергійович"
+Query: "солдат ОРЛЕНКО Максим Ігорович"
 Correct answer:
 {"found": true, "context_paragraph_indices": [36, 37], "target_paragraph_index": 38, "redactions": []}
 (Paragraph 39 — a different person — is simply never selected. No redaction needed.)
@@ -66,13 +66,13 @@ Correct answer:
 --- EXAMPLE 2: target is deep inside a long list, with OTHER people's own
 paragraphs in between the context and the target ---
 [89] на виконання БР командира 7 обр (на бмп) 2 боп 15 обр «СОКІЛ» №БР47/Б3/7Р/ДСК від 15.02.26, з метою швидкого реагування ...
-[90] молодший сержант КОВАЛЬЧУК Євген Миколайович;
-[91] сержант ЮЩЕНКО Ренат Маратович;
-[92] старший солдат ДЕМЧЕНКО Олександр Васильович;
-[93] солдат ОРЛЕНКО Павло Юрійович;
-[94] солдат МАЛЬЦЕВА Олександра Васильович;
+[90] молодший сержант КОВАЛЬЧУК Роман Андрійович;
+[91] сержант ЮЩЕНКО Тарас Павлович;
+[92] старший солдат ДЕМЧЕНКО Ігор Васильович;
+[93] солдат ОРЛЕНКО Богдан Юрійович;
+[94] солдат МАЛЬЦЕВА Ірина Василівна;
 
-Query: "солдат ОРЛЕНКО Павло Юрійович"
+Query: "солдат ОРЛЕНКО Богдан Юрійович"
 Correct answer:
 {"found": true, "context_paragraph_indices": [89], "target_paragraph_index": 93, "redactions": []}
 (Paragraphs 90-92 and 94 — other people, each on their own paragraph — are
@@ -82,13 +82,13 @@ paragraph [89] and the target paragraph [93] are chosen.)
 
 --- EXAMPLE 3: TWO people share the SAME paragraph — this is when redactions
 is actually needed ---
-[55] з метою вивчення реального стану справ ... проводили роботу: головний сержант 2 корпусу НГУ «СОКІЛ» майстер-сержант БОНДАРЕНКО Дмитро Сергійович, водій ... солдат ЛИТВИНЕНКО Андрій Іванович (згідно БР ... від 10.02.2026).
+[55] з метою вивчення реального стану справ ... проводили роботу: головний сержант 3 корпусу НГУ «СОКІЛ» майстер-сержант БОНДАРЕНКО Сергій Миколайович, водій ... солдат ЛИТВИНЕНКО Андрій Іванович (згідно БР ... від 10.02.2026).
 
 Query: "солдат ЛИТВИНЕНКО Андрій Іванович"
 Correct answer:
-{"found": true, "context_paragraph_indices": [], "target_paragraph_index": 55, "redactions": ["головний сержант 2 корпусу НГУ «СОКІЛ» майстер-сержант БОНДАРЕНКО Дмитро Сергійович, "]}
-(Here БОНДАРЕНКО shares the exact same paragraph/sentence as the target, so his
-text must be redacted. This is the ONLY situation where redactions is used.)
+{"found": true, "context_paragraph_indices": [], "target_paragraph_index": 55, "redactions": ["головний сержант 3 корпусу НГУ «СОКІЛ» майстер-сержант БОНДАРЕНКО Сергій Миколайович, "]}
+(Here БОНДАРЕНКО shares the exact same paragraph/sentence as the target, so
+his text must be redacted. This is the ONLY situation where redactions is used.)
 
 --- EXAMPLE 4 (rare fallback case): if the list still contains candidates
 from TWO DIFFERENT, UNRELATED orders (e.g. two namesakes governed by
