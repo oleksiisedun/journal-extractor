@@ -101,9 +101,10 @@ pip install python-docx requests --break-system-packages
 
 **4. Provide a source file**
 
-Place a daily `.docx` ЖБД file in the project folder (or point `ZHBD_PATH`
-in `test_vytyah_extraction.py` at it). Source `.docx` files are gitignored
-— they are ДСК-classified and must never be committed.
+Place a daily `.docx` ЖБД file in the `journals/` folder (or point
+`ZHBD_PATH` in `test_vytyah_extraction.py` at it). Sample вityah documents
+go in `samples/`. Both `journals/` and `samples/` are gitignored — the
+source and sample content is ДСК-classified and must never be committed.
 
 ## Running
 
