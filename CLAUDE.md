@@ -66,7 +66,7 @@ introduce wording drift, because it never gets a chance to output prose.
   when someone else shares the exact same paragraph/sentence as the target
   (e.g. two names in one continuous sentence). Most of the time this is `[]`.
 
-## Pipeline (as currently implemented in `test_vytyah_extraction.py`)
+## Pipeline (as currently implemented — entry point `run_demo.py`)
 
 1. **Parse** a day's `.docx` into an indexed paragraph list via
    `python-docx` (NOT `pandoc` — pandoc reflows/normalizes whitespace,
@@ -283,10 +283,20 @@ regression test. Keep using it when touching the narrowing logic.
 
 ## Style/conventions in the existing code
 
-- Deterministic logic and LLM prompt live in one file
-  (`test_vytyah_extraction.py`) for now — fine for continued exploration,
-  should probably split into modules (parsing / prefilter / llm client /
-  assembly+guardrails / docx rendering) once the batch driver is added.
+- Code is split into small, single-purpose modules at the repo root (flat,
+  no package directory — this project isn't distributed/packaged, so the
+  extra nesting isn't worth it): `config.py` (settings), `patterns.py`
+  (the one regex — `ORDER_REF_PATTERN` — shared between `assembly.py` and
+  `time_extraction.py`, kept separate to avoid a circular import between
+  those two), `docx_parsing.py`, `prefilter.py`, `llm_client.py`
+  (system prompt + schema + `ask_llm()`), `time_extraction.py`,
+  `assembly.py`. `run_demo.py` is the entry point — it wires the modules
+  together and prints results for a handful of hand-picked test people.
+  It is intentionally *not* named `test_*.py`: it's a print-based demo, not
+  a pytest suite, and that naming is reserved for the real accuracy
+  benchmark still on the "not yet built" list. Docx-template rendering and
+  the batch driver (also not yet built) should each get their own new
+  module rather than growing an existing one.
 - Code comments (and docstrings) are English, matching the LLM system
   prompt — the actual document text/data (combat log source content, test names,
   runtime console output) stays Ukrainian since it's being extracted

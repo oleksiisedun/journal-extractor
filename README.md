@@ -77,12 +77,13 @@ graph TD
 
 ## Pipeline status
 
-Implemented today (`test_vytyah_extraction.py`): single-day, single-person
-extraction with the full prefilter → LLM → assemble → guardrail flow above,
-plus date (from filename, any of `_`/`.`/`-` separators) and time-of-day
-metadata attached to each result — exact when the source uses the inline
-time format, heuristic (flagged when uncertain) when it uses the
-left-column format.
+Implemented today (`run_demo.py`, plus `config.py` / `docx_parsing.py` /
+`prefilter.py` / `llm_client.py` / `time_extraction.py` / `assembly.py`):
+single-day, single-person extraction with the full prefilter → LLM →
+assemble → guardrail flow above, plus date (from filename, any of
+`_`/`.`/`-` separators) and time-of-day metadata attached to each result —
+exact when the source uses the inline time format, heuristic (flagged when
+uncertain) when it uses the left-column format.
 
 Not yet built: cross-day merging into date ranges, a batch driver over a
 folder of daily files, rendering into the actual вityah `.docx` template,
@@ -120,7 +121,7 @@ pip install python-docx requests --break-system-packages
 **4. Provide a source file**
 
 Place a daily `.docx` combat log file in the `journals/` folder (or point
-`COMBAT_LOG_PATH` in `test_vytyah_extraction.py` at it). Sample вityah
+`COMBAT_LOG_PATH` in `config.py` at it). Sample вityah
 documents go in `samples/`. Both `journals/` and `samples/` are gitignored
 — the source and sample content carries a restricted classification and
 must never be committed.
@@ -128,7 +129,7 @@ must never be committed.
 ## Running
 
 ```bash
-python3 test_vytyah_extraction.py
+python3 run_demo.py
 ```
 
 Edit the `test_cases` list in the script to real names known to be present
