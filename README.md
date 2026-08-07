@@ -86,7 +86,7 @@ exact when the source uses the inline time format, heuristic (flagged when
 uncertain) when it uses the left-column format.
 
 Not yet built: cross-day merging into date ranges, a batch driver over a
-folder of daily files, rendering into the actual вityah `.docx` template,
+folder of daily files, rendering into the actual extract `.docx` template,
 and a tracked accuracy benchmark. See `CLAUDE.md` for details.
 
 **No actual extract `.docx` file is produced yet.** `run_demo.py` only
@@ -124,13 +124,14 @@ and other model options if 8B proves too slow or inaccurate.
 pip install python-docx requests --break-system-packages
 ```
 
-**4. Provide a source file**
+**4. Provide source files**
 
-Place a daily `.docx` combat log file in the `journals/` folder (or point
-`COMBAT_LOG_PATH` in `config.py` at it). Sample вityah
-documents go in `samples/`. Both `journals/` and `samples/` are gitignored
-— the source and sample content carries a restricted classification and
-must never be committed.
+Place daily `.docx` combat log files in the `journals/` folder (or point
+`COMBAT_LOG_DIR` in `config.py` at a different directory). The script picks
+up every `.docx` file it finds there, sorted chronologically by the date
+encoded in each filename. Sample extract documents go in `samples/`. Both
+`journals/` and `samples/` are gitignored — the source and sample content
+carries a restricted classification and must never be committed.
 
 ## Running
 
@@ -139,11 +140,16 @@ python3 run_demo.py
 ```
 
 Edit the `test_cases` list in the script to real names known to be present
-in your source file. The script prints, per person: the prefilter window
+in your source files. The script runs every `.docx` file in `journals/` in
+chronological order and, per file per person, prints: the prefilter window
 size, the LLM's raw pointer response, and the final assembled fragment with
 its date and heuristically-resolved time (or a `found: false` / guardrail
 rejection). A time flagged `uncertain` is printed with an explicit warning
 — never presented as fact without review.
+
+This runs each day independently — it does not yet merge consecutive days
+into a single "з ... по ..." range, filter to a requested date range, or
+flag genuinely-absent dates as gaps (see `CLAUDE.md` → "Not yet built").
 
 Target dev hardware: AMD Ryzen 7 7840HS, 32GB RAM, CPU-only inference. A
 few seconds per query is acceptable — this is batch/offline processing,

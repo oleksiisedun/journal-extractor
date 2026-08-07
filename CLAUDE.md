@@ -80,7 +80,13 @@ introduce wording drift, because it never gets a chance to output prose.
    first name + patronymic) verbatim. If this narrows to exactly one
    window, that's all the LLM ever sees — this is what prevents the LLM
    from mixing context between two namesakes governed by different orders
-   (see bug log below). Falls back to all surname-windows if 0 or 2+ match.
+   (see bug log below). Zero matches means the full name isn't verbatim
+   anywhere that day even though the surname is — this fails closed
+   (`found: false`, no LLM call) rather than handing the LLM weaker
+   surname-only context to guess from. Two or more matches is genuine
+   ambiguity (e.g. two identically-named people); `select_ambiguous_window()`
+   picks the first or last occurrence in the file per
+   `FULL_NAME_AMBIGUITY_STRATEGY` in `config.py`.
 4. **LLM call** (Ollama, local): given the (usually single, ~10-paragraph)
    candidate window, returns the pointer JSON above. See "LLM config"
    below for the non-obvious settings this depends on.
@@ -167,18 +173,18 @@ more files rather than assuming they generalize forever.
 
 - Cross-day merging: collapsing consecutive days with byte-identical
   fragments into a single "з ... по ..." date range (this is how the real
-  вityah samples look for continuous multi-day presence — see the two
+  extract samples look for continuous multi-day presence — see the two
   original sample files if still available: `Витяг_з_ЖБД_на_100к_ЛИПЕНЬ_Клименко.docx`,
   `Витяг_ЖБД_Бондаренко_07_2026.docx`).
-- Batch driver: iterate a folder of daily `.docx` files over a requested
-  date range, run the per-day pipeline, merge, and flag gaps (a requested
-  date with no match — genuinely absent vs. a matching failure — must
-  always be surfaced explicitly, never silently dropped).
-- Final rendering into the actual вityah `.docx` template (header/table/
+- Batch driver: `run_demo.py` now iterates every `.docx` file found in
+  `COMBAT_LOG_DIR` (`config.py`, default `journals/`), sorted chronologically
+  by filename date, and runs the per-day pipeline independently for each —
+  but it does not yet accept a requested date range, merge results across
+  days, or flag gaps (a requested date with no matching file — genuinely
+  absent vs. a matching failure — must always be surfaced explicitly, never
+  silently dropped). Those three remain open work.
+- Final rendering into the actual extract `.docx` template (header/table/
   signature block matching the original samples).
-- Handling for 0-match or multi-match full-name narrowing (currently falls
-  back to giving the LLM everything and trusting the order-number
-  guardrail — works, but untested at scale).
 - A real accuracy benchmark: ~15-20 hand-verified (person, day, expected
   pointer) cases, tracked as a pass-rate, to catch regressions when the
   prompt or model changes instead of discovering bugs one production run

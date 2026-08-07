@@ -57,3 +57,17 @@ def filter_windows_by_full_name(paragraphs, windows, full_name):
         if full_name.upper() in text.upper():
             matched.append((lo, hi))
     return matched
+
+
+def select_ambiguous_window(windows, strategy):
+    """Picks a single window when the full name matched verbatim in more
+    than one place (genuine ambiguity, e.g. two identically-named people).
+    `windows` must be pre-sorted in file order, as returned by
+    filter_windows_by_full_name() (which preserves find_candidate_windows()'s
+    ascending order) -- "first"/"last" then mean first/last occurrence in
+    the file."""
+    if strategy == "first":
+        return windows[0]
+    if strategy == "last":
+        return windows[-1]
+    raise ValueError(f"Unknown FULL_NAME_AMBIGUITY_STRATEGY: {strategy!r} (expected 'first' or 'last')")
