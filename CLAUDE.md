@@ -248,8 +248,24 @@ against these exact cases before considering it done.
    by trimming redundant example text and relying on full-name narrowing
    to keep the typical candidate window small (~10 paragraphs) rather than
    trying to cover every case with more prompt text.
+5. **Model redacted a neighboring paragraph it never selected.** Real case
+   (see `local_test_data.py`, shape mirrors system-prompt Example 1): target
+   on its own paragraph (e.g. ОРЛЕНКО at paragraph 38), immediately followed
+   by a different, unselected person's paragraph (ПЕТРЕНКО at paragraph 39).
+   `target_paragraph_index` and `context_paragraph_indices` were both
+   correct, but `redactions` still contained the neighbor's text — even
+   though paragraph 39 was in neither list, directly contradicting both the
+   explicit prompt rule and Example 1's "no redaction needed" case.
+   Reproduced deterministically (3/3 runs, temperature 0), and confirmed via
+   A/B testing against both the real-name and fictional-name versions of the
+   system prompt — identical failure either way, so this is a pre-existing
+   model weakness, not a prompt-wording regression. Not yet root-caused or
+   fixed; currently relies entirely on defense in depth — the existing
+   fail-closed redaction-substring check in `assembly.py` catches it
+   (raises `ValueError`, no bad output emitted), so this degrades to a
+   manual-review case rather than silent corruption.
 
-**Pattern across all four**: the fixes that actually held up were the ones
+**Pattern across items 1-4**: the fixes that actually held up were the ones
 that removed the need for the model to get something right, not the ones
 that just asked it more firmly. Prefer restructuring the schema/pipeline
 over adding another prompt paragraph when a bug recurs.

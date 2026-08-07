@@ -89,10 +89,16 @@ def main():
             print(">>> Не знайдено в цьому дні (перевір вручну — гепи не пропускаємо мовчки)")
             continue
 
-        result = assemble_fragment(
-            all_paragraphs, pointer,
-            date_value=day_date, time_boundaries=time_boundaries,
-        )
+        try:
+            result = assemble_fragment(
+                all_paragraphs, pointer,
+                date_value=day_date, time_boundaries=time_boundaries,
+            )
+        except ValueError as e:
+            print(f">>> ПОТРЕБУЄ РУЧНОЇ ПЕРЕВІРКИ — гвардрейл відхилив результат:\n{e}")
+            print()
+            continue
+
         time_note = "" if result["time_confidence"] == "confident" else "  [!! ЧАС НЕВИЗНАЧЕНИЙ/НЕТОЧНИЙ — перевірити вручну !!]"
         print(f">>> Дата: {result['date'].isoformat()}    Час: {result['time']}{time_note}")
         print(">>> ЗІБРАНИЙ ФРАГМЕНТ (дослівно з джерела):")
