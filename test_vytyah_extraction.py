@@ -306,7 +306,9 @@ def ask_llm(paragraphs, rank_and_name):
 
 # ---------- STEPS 3-5: Deterministic assembly + validation (no LLM) ----------
 
-ORDER_REF_PATTERN = re.compile(r"№\S+")
+# Optional space after № tolerated — real files are inconsistent about it
+# (e.g. '№БР42/Б3/7Р/ДСК' vs '№ БР91/Б3/12Р/ДСК').
+ORDER_REF_PATTERN = re.compile(r"№\s?\S+")
 
 # MGRS-style grid coordinate, e.g. "37U CR 1234 5678" — zone+band, 100km
 # square, then two equal-length easting/northing digit groups.
@@ -322,8 +324,12 @@ LOCATION_LABEL_PATTERN = re.compile(
 
 
 def extract_order_refs(text):
-    """Extracts order/directive numbers of the form №БР42/Б3/7Р/ДСК from text."""
-    return set(ORDER_REF_PATTERN.findall(text))
+    """Extracts order/directive numbers of the form №БР42/Б3/7Р/ДСК from
+    text. Whitespace after № is stripped before comparison so the same
+    order isn't treated as two different ones just because one mention
+    happens to have a space after № and another doesn't (both forms occur
+    in real files)."""
+    return {re.sub(r"\s+", "", ref) for ref in ORDER_REF_PATTERN.findall(text)}
 
 
 # ---------- Time-of-day extraction (no LLM) ----------
