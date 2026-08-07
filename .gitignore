@@ -4,3 +4,5 @@ __pycache__/
 
 # ДСК source/sample documents — must stay local, never committed
 *.docx
+/journals/
+/samples/

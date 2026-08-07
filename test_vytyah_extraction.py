@@ -12,7 +12,7 @@ from docx import Document
 # ---------- SETTINGS ----------
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:8b-q8_0"          # switch to "qwen3:8b" for faster/lighter
-ZHBD_PATH = "ЖБД_02_04_2026.docx"  # path to the daily ЖБД file
+ZHBD_PATH = "journals/ЖБД_02_04_2026.docx"  # path to the daily ЖБД file
 
 # ---------- STEP 1: Parse the source (no LLM) ----------
 
