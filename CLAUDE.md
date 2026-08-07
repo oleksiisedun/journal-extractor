@@ -27,9 +27,11 @@ The only edits ever allowed:
    in its original list).
 4. Stripping MGRS-style grid coordinates (e.g. `37U CR 1234 5678`) wherever
    they appear, including cleanup of any parenthetical group that becomes
-   empty once its coordinates are removed. Coordinates are tactical data
-   with no place in a personnel extract — this is a blanket rule, not
-   conditional on context. See `strip_coordinates()`.
+   empty once its coordinates are removed, and the introducing phrase "за
+   координатами" (by/at coordinates) when it's left dangling with nothing
+   left to refer to. Coordinates are tactical data with no place in a
+   personnel extract — this is a blanket rule, not conditional on context.
+   See `strip_coordinates()`.
 5. Stripping the phrase "район зосередження" (concentration area) and its
    grammatical variants (районі, району, зосередженню, ...), including an
    immediately preceding preposition (у/в/на) so nothing dangles. Same
@@ -321,8 +323,48 @@ against these exact cases before considering it done.
    sample files) — both merged into `context_paragraph_indices` in
    `run_demo.py` after the LLM call, overriding whatever the LLM itself
    returned. See "Pipeline" step 4 above.
+7. **`ORDER_REF_PATTERN` false-matched plain "№N" numbering as an order
+   reference, breaking item 6's fix.** Real case (`ЖБД_12-04-2026.docx`,
+   ХОМЕНКО Дмитро Юрійович): target at paragraph 125, inside "Група №2"
+   (a numbered sub-group, not a call-sign), itself inside a list governed
+   by an order at paragraph 112 — 13 paragraphs earlier, outside the ±8
+   window, same shape as item 6. But `find_preceding_order_paragraph()`
+   walked backward and immediately matched paragraph 124 ("Група №2 за
+   координатами (...)") against the old `№\s?\S+` pattern, because "№2" on
+   its own satisfies it — stopping the search one paragraph too early and
+   never reaching the real order at 112. Every real order reference in all
+   three sample files contains a `/` (e.g. `№БР59/Б3/РВП/ДСК`); plain "№N"
+   numbering (group labels, the document's own header number) never does.
+   Fixed by tightening `ORDER_REF_PATTERN` (`patterns.py`) to require a
+   `/` in the matched token via a lookahead — this also fixes a latent
+   false-positive risk in `assembly.py`'s multi-order guardrail, which
+   used the same pattern. A second, narrower gap: paragraph 124 itself
+   (the "Група №2" label) has neither of `find_immediate_label_header()`'s
+   two signals (no `«»`, no trailing `:`), so it wasn't forced in either,
+   and the LLM dropped it from context on its own — same shape as the
+   `СЗМ «ФЛЕШ»` gap in item 6. Verified this "group label with neither
+   signal" shape recurs across two different sample files (`Група №N`,
+   lowercase `група N`, `Інженерно-саперна група №N`), so it's a real
+   pattern, not a one-off. Fixed by adding a fallback signal to
+   `find_immediate_label_header()`: a bare (non-quoted) run of 3+ uppercase
+   Cyrillic letters is the shape every real surname has, so a preceding
+   line WITHOUT one outside any `«»` quoting is safe to treat as a label
+   rather than another person's own paragraph — worst case if this signal
+   is ever too loose is a missed force-include (same as before this
+   function existed), never a wrongly forced-in name.
+8. **A stripped coordinate parenthetical left its introducing phrase
+   dangling.** Same ХОМЕНКО case: `strip_coordinates()` correctly dropped
+   `(37U CR 15093 59641)` and the now-empty parens, but left "Група №2 за
+   координатами" — "за координатами" (by/at coordinates) is meaningless
+   once the coordinates themselves are gone. Verified this exact phrase
+   only ever appears immediately before a coordinate parenthetical (both
+   occurrences in `ЖБД_12-04-2026.docx`), so stripping it unconditionally
+   is safe — same rationale as the digits themselves (CLAUDE.md rule 4:
+   tactical data with no place in a personnel extract). Fixed by adding
+   `COORDINATE_LABEL_PATTERN` to `strip_coordinates()` (`assembly.py`),
+   applied after the parenthetical cleanup, not as a separate rule.
 
-**Pattern across items 1-6**: the fixes that actually held up were the ones
+**Pattern across items 1-8**: the fixes that actually held up were the ones
 that removed the need for the model to get something right, not the ones
 that just asked it more firmly. Prefer restructuring the schema/pipeline
 over adding another prompt paragraph when a bug recurs.

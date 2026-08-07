@@ -2,6 +2,8 @@
 what keeps the LLM from ever seeing two unrelated namesake windows at once,
 and lets it be skipped entirely when a person isn't in a given day at all."""
 
+import re
+
 from patterns import ORDER_REF_PATTERN
 
 
@@ -107,25 +109,48 @@ def find_preceding_order_paragraph(paragraphs, anchor_index):
     return None
 
 
+# A bare (non-quoted) run of 3+ uppercase Cyrillic letters -- the shape a
+# real personnel surname always has (see extract_surname()). Used to tell a
+# group/list sub-header apart from another person's own paragraph when
+# neither the guillemet nor colon signal is present (see
+# find_immediate_label_header()).
+SURNAME_LIKE_PATTERN = re.compile(r"[А-ЯЁІЇЄҐ]{3,}")
+QUOTED_LABEL_PATTERN = re.compile(r"«[^»]*»")
+
+
 def find_immediate_label_header(paragraphs, anchor_index):
     """Returns the index of the paragraph immediately preceding
-    `anchor_index` if it looks like a position/call-sign label header --
-    quoted in « » guillemets (e.g. 'СЗМ «ФЛЕШ»') or ending in ':' -- rather
-    than an ordinary content/personnel line. Real personnel entries never
-    contain guillemets (verified across all sample files: « » only appears
-    in call-sign/position labels, order references, and event descriptions,
-    never in a bare rank+name line), so this is a cheap, safe signal that
-    avoids having to parse rank/name shapes. This complements
-    find_preceding_order_paragraph(), which can land far back and miss an
-    immediate sub-header the target sits directly under (found empirically:
-    the LLM was given this label already in-window and still didn't select
-    it as context even after a prompt clarification -- see CLAUDE.md bug
-    log). Returns None if the previous paragraph doesn't look like a
-    header, or anchor_index is 0."""
+    `anchor_index` if it looks like a position/call-sign/group label header
+    -- rather than an ordinary content/personnel line. Two signals, checked
+    in order:
+    1. Quoted in « » guillemets (e.g. 'СЗМ «ФЛЕШ»') or ending in ':' (e.g.
+       'на ПВ «БЕРЕГ»:', 'Виведено:'). Real personnel entries never contain
+       guillemets or end in ':' (verified across all sample files).
+    2. Fallback for labels with NEITHER signal -- e.g. 'Група №2 за
+       координатами (...)', lowercase 'група 1', 'Інженерно-саперна група
+       №1' (verified as a recurring pattern across two different sample
+       files, not a one-off). Real personnel lines always carry their
+       surname in bare ALL CAPS, so the absence of one outside any «»
+       quoting (call-sign text like 'ФЛЕШ' is also all-caps but IS quoted)
+       is a safe signal this is a label, not another person's own
+       paragraph. Worst case if this signal is too loose is a missed
+       force-include (falls back to trusting the LLM, same as before this
+       function existed) -- never a wrongly forced-in person's name.
+    This complements find_preceding_order_paragraph(), which can land far
+    back and miss an immediate sub-header the target sits directly under
+    (found empirically: the LLM was given a label already in-window and
+    still didn't select it as context even after a prompt clarification --
+    see CLAUDE.md bug log). Returns None if the previous paragraph doesn't
+    look like a header, or anchor_index is 0."""
     if anchor_index <= 0:
         return None
     para_dict = dict(paragraphs)
     text = para_dict[anchor_index - 1].strip()
+    if not text:
+        return None
     if "«" in text or "»" in text or text.endswith(":"):
+        return anchor_index - 1
+    without_quotes = QUOTED_LABEL_PATTERN.sub("", text)
+    if not SURNAME_LIKE_PATTERN.search(without_quotes):
         return anchor_index - 1
     return None
