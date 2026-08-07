@@ -6,7 +6,7 @@ Logic: the LLM NEVER writes the final text. It only returns "pointers"
 assembled by this code via an exact character slice of the source.
 
 Run:
-    1. Install Ollama and pull the model (see Налаштування_локальної_LLM_тест.md)
+    1. Install Ollama and pull the model
     2. pip install python-docx requests --break-system-packages
     3. Put your ЖБД .docx in the same folder (or set a full path in ZHBD_PATH)
     4. python test_vytyah_extraction.py
