@@ -3,18 +3,19 @@ Generates a real "витяг" (extract) .docx per person, filling
 templates/1.docx from every day's assembled fragment (no LLM anywhere —
 see CLAUDE.md's "Core architectural principle"). Days that resolve to
 "not_found" or "rejected" are skipped and printed as warnings, never
-silently dropped, matching run_demo.py's existing posture.
+silently dropped.
 
 Cross-day date-range merging ("з ... по ...") and requested-date-range
 filtering are NOT done here — every "found" day across all of journals/
 becomes its own stacked entry in the output. See CLAUDE.md's "Not yet
 built" list.
 
-See README.md for setup/run instructions.
+Run via run.sh — see README.md for setup/run instructions.
 """
 
 import glob
 import os
+import sys
 from datetime import date
 
 from config import COMBAT_LOG_DIR, OUTPUT_DIR, TEMPLATE_PATH
@@ -25,7 +26,32 @@ from render import render_extract
 from time_extraction import assign_time_boundaries
 
 
+def load_people(argv):
+    """People to extract, from CLI args: either raw "rank SURNAME
+    Firstname Patronymic" strings passed directly, or -- if `argv` is a
+    single existing file path -- one such string per non-blank line of
+    that file.
+    @param {list[str]} argv
+    @returns {list[str]}
+    """
+    if not argv:
+        print("Використання: ./run.sh <ім'я> [<ім'я> ...] | <names.txt>")
+        sys.exit(1)
+
+    if len(argv) == 1 and os.path.isfile(argv[0]):
+        with open(argv[0], encoding="utf-8") as f:
+            people = [line.strip() for line in f if line.strip()]
+        if not people:
+            print(f"{argv[0]} не містить жодного імені.")
+            sys.exit(1)
+        return people
+
+    return argv
+
+
 def main():
+    people = load_people(sys.argv[1:])
+
     docx_paths = sorted(
         glob.glob(os.path.join(COMBAT_LOG_DIR, "*.docx")),
         key=extract_date_from_filename,
@@ -33,18 +59,6 @@ def main():
     if not docx_paths:
         print(f"У {COMBAT_LOG_DIR}/ немає жодного .docx файлу.")
         return
-
-    try:
-        # real names from the actual sample files — gitignored, see
-        # local_test_data.py's docstring for how to set it up locally
-        from local_test_data import TEST_CASES as test_cases
-    except ImportError:
-        # fictional placeholders; won't match anything in a real journals/
-        # file, but keep the script runnable in a fresh clone
-        test_cases = [
-            "солдат ОРЛЕНКО Максим Ігорович",
-            "солдат ОРЛЕНКО Богдан Юрійович",
-        ]
 
     # each day's paragraphs/time boundaries only depend on the file, not
     # the person -- load them once and reuse across every person below
@@ -65,7 +79,7 @@ def main():
     issue_date = date.today()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    for person in test_cases:
+    for person in people:
         print("=" * 70)
         print("Особа:", person)
 
