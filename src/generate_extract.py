@@ -59,10 +59,15 @@ def load_people(argv):
 def main():
     people = load_people(sys.argv[1:])
 
-    docx_paths = sorted(
-        glob.glob(os.path.join(COMBAT_LOG_DIR, "**", "*.docx"), recursive=True),
-        key=extract_date_from_filename,
-    )
+    docx_paths = []
+    for docx_path in glob.glob(os.path.join(COMBAT_LOG_DIR, "**", "*.docx"), recursive=True):
+        try:
+            extract_date_from_filename(docx_path)
+        except ValueError:
+            print(f"Пропущено (немає дати в назві файлу): {os.path.basename(docx_path)}")
+            continue
+        docx_paths.append(docx_path)
+    docx_paths.sort(key=extract_date_from_filename)
     if not docx_paths:
         print(f"У {COMBAT_LOG_DIR}/ немає жодного .docx файлу.")
         return
@@ -71,9 +76,12 @@ def main():
     # the person -- load them once and reuse across every person below
     days = []
     for docx_path in docx_paths:
+        columns = load_paragraph_columns(docx_path)
+        if not columns:
+            print(f"Пропущено (немає таблиці в файлі): {os.path.basename(docx_path)}")
+            continue
         all_paragraphs = load_paragraphs(docx_path)
         day_date = extract_date_from_filename(docx_path)
-        columns = load_paragraph_columns(docx_path)
         content_row = max(columns, key=lambda r: len(r["content_paragraphs"]))
         time_boundaries = assign_time_boundaries(content_row)
         days.append({
