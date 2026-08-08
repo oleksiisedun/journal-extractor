@@ -53,7 +53,7 @@ def main():
     people = load_people(sys.argv[1:])
 
     docx_paths = sorted(
-        glob.glob(os.path.join(COMBAT_LOG_DIR, "*.docx")),
+        glob.glob(os.path.join(COMBAT_LOG_DIR, "**", "*.docx"), recursive=True),
         key=extract_date_from_filename,
     )
     if not docx_paths:
