@@ -51,7 +51,14 @@ the source table's (non-paragraph-aligned) left time column
 (`load_paragraph_columns()`) when no inline time is present — see
 `CLAUDE.md` → "Time-of-day extraction" for why the left-column case can't
 be an exact lookup, and how uncertain results are flagged rather than
-guessed.
+guessed. `pipeline.py`'s `resolve_day_fragment()` wraps the whole
+prefilter → pointer → assemble chain into one call (used by both
+`run_demo.py` and `generate_extract.py`, so the not-found/ambiguous/
+guardrail branching only lives in one place). `render.py`'s
+`render_extract()` then fills `templates/1.docx`'s `{дата витягу}` /
+`{дата}` / `{витяг}` placeholders with a person's assembled fragments —
+every value it writes came verbatim out of `assemble_fragment()`, so
+rendering never introduces a text-generation step.
 
 ```mermaid
 graph TD
@@ -79,27 +86,29 @@ graph TD
   end
 
   Check --> Fragment["Final fragment:\ntext + date + time + confidence"]
+
+  Fragment --> Render["render_extract()\nfills templates/1.docx\n{дата}/{витяг} placeholders"]
+  Render --> Output[(".docx"\nextract output)]
 ```
 
 ## Pipeline status
 
-Implemented today (`run_demo.py`, plus `config.py` / `docx_parsing.py` /
-`prefilter.py` / `time_extraction.py` / `assembly.py`): single-day,
+Implemented today (`config.py` / `docx_parsing.py` / `prefilter.py` /
+`time_extraction.py` / `assembly.py` / `pipeline.py`): single-day,
 single-person extraction with the full prefilter → pointer resolution →
 assemble → guardrail flow above, plus date (from filename, any of
 `_`/`.`/`-` separators) and time-of-day metadata attached to each result —
 exact when the source uses the inline time format, heuristic (flagged when
-uncertain) when it uses the left-column format.
+uncertain) when it uses the left-column format. `run_demo.py` prints this
+to the console for a hand-picked list of people; `render.py` +
+`generate_extract.py` render it into a real extract `.docx` per person,
+filling `templates/1.docx`.
 
-Not yet built: cross-day merging into date ranges, a batch driver over a
-folder of daily files, rendering into the actual extract `.docx` template,
-and a tracked accuracy benchmark. See `CLAUDE.md` for details.
-
-**No actual extract `.docx` file is produced yet.** `run_demo.py` only
-prints the assembled fragment (text + date + time) to the console — there
-is no code that writes a `.docx` matching the real extract template's
-header/table/signature-block layout. Producing that output file is still
-open work.
+Not yet built: cross-day merging into date ranges (each "found" day
+currently renders as its own stacked block rather than collapsing
+identical consecutive days into a "з ... по ..." range), a requested
+date-range filter with explicit gap-flagging, and a tracked accuracy
+benchmark. See `CLAUDE.md` for details.
 
 ## Setup
 
@@ -112,13 +121,17 @@ pip install python-docx --break-system-packages
 **2. Provide source files**
 
 Place daily `.docx` combat log files in the `journals/` folder (or point
-`COMBAT_LOG_DIR` in `config.py` at a different directory). The script picks
-up every `.docx` file it finds there, sorted chronologically by the date
-encoded in each filename. Sample extract documents go in `samples/`. Both
+`COMBAT_LOG_DIR` in `config.py` at a different directory). The scripts pick
+up every `.docx` file found there, sorted chronologically by the date
+encoded in each filename. Sample extract documents go in `samples/`; the
+extract template goes in `templates/` (`TEMPLATE_PATH` in `config.py`).
 `journals/` and `samples/` are gitignored — the source and sample content
-carries a restricted classification and must never be committed.
+carries a restricted classification and must never be committed (as is
+every `*.docx` file anywhere in the repo, including generated output).
 
 ## Running
+
+**Console demo** — prints assembled fragments without writing a file:
 
 ```bash
 python3 src/run_demo.py
@@ -132,9 +145,27 @@ heuristically-resolved time (or a `found: false` / guardrail rejection). A
 time flagged `uncertain` is printed with an explicit warning — never
 presented as fact without review.
 
-This runs each day independently — it does not yet merge consecutive days
-into a single "з ... по ..." range, filter to a requested date range, or
-flag genuinely-absent dates as gaps (see `CLAUDE.md` → "Not yet built").
+**Generate a real extract `.docx`** — one file per person, filling
+`templates/1.docx`:
+
+```bash
+python3 src/generate_extract.py
+```
+
+Edit the `test_cases` list in the script the same way. For each person, it
+walks every `.docx` file in `journals/` chronologically via
+`resolve_day_fragment()`, collects the days that resolve to `found`, prints
+a warning for any day that doesn't (never silently dropped), and — if at
+least one day was found — writes `output/Витяг_<ПРІЗВИЩЕ>_<issue
+date>.docx` (`OUTPUT_DIR` in `config.py`; also gitignored). The header's
+issuance date defaults to today; every stacked day in the table shows its
+own date + time, with uncertain/unresolved times flagged inline in the
+document text itself rather than hidden.
+
+Both scripts run each day independently — neither merges consecutive days
+into a single "з ... по ..." range, filters to a requested date range, or
+flags genuinely-absent dates as gaps yet (see `CLAUDE.md` → "Not yet
+built").
 
 Everything here is regex/string logic over an already-parsed paragraph
 list, so it runs in well under a second per person/day — no particular

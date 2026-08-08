@@ -91,7 +91,8 @@ kept because it documents *why* the deterministic finder functions look
 the way they do — every entry describes a real failure that shaped
 `prefilter.py`, not a hypothetical one.
 
-## Pipeline (as currently implemented — entry point `run_demo.py`)
+## Pipeline (as currently implemented — entry points `run_demo.py` /
+`generate_extract.py`)
 
 1. **Parse** a day's `.docx` into an indexed paragraph list via
    `python-docx` (NOT `pandoc` — pandoc reflows/normalizes whitespace,
@@ -154,6 +155,31 @@ the way they do — every entry describes a real failure that shaped
    trying the exact inline format first and falling back to the
    left-column heuristic. `assemble_fragment()` returns a dict
    (`{"text", "date", "time", "time_confidence"}`), not a bare string.
+10. **Per-day resolution wrapper** (`pipeline.py`): `resolve_day_fragment()`
+    wraps steps 2-9 (surname prefilter through `assemble_fragment()`) into
+    one call returning `{"status": "found"|"not_found"|"rejected",
+    "result", "pointer", "note"}` — used by both `run_demo.py` (prints
+    console output for a hand-picked list of people) and
+    `generate_extract.py` (collects one person's `"found"` days across all
+    of `journals/`), so the not-found/ambiguous/guardrail branching isn't
+    duplicated between entry points.
+11. **Template rendering** (`render.py`): `render_extract()` fills
+    `templates/1.docx` — the real extract template, three placeholders:
+    `{дата витягу}` (issuance date, in the header) and `{дата}` / `{витяг}`
+    inside the results table's single data row. Every value written comes
+    verbatim out of `assemble_fragment()`'s output; rendering is pure
+    placeholder substitution, never text generation. Each person's
+    `"found"` days are stacked as additional paragraphs inside that same
+    single row (blank-paragraph separated) rather than cloning a new table
+    row per day — matches both the template's literal one-row structure
+    and one of the two real sample layouts observed; the other real sample
+    clones a row per day, which was deliberately not chosen (see git
+    history / the plan behind this feature for the two layouts compared).
+    Uncertain or entirely unresolved times are flagged inline in the
+    rendered text itself (e.g. `"05.00 (час приблизний — перевірити)"`),
+    never silently presented as fact. `generate_extract.py` is the entry
+    point: one `.docx` per person, written to `OUTPUT_DIR`
+    (`config.py`).
 
 ## Time-of-day extraction
 
@@ -212,19 +238,21 @@ more files rather than assuming they generalize forever.
 ## Not yet built
 
 - Cross-day merging: collapsing consecutive days with byte-identical
-  fragments into a single "з ... по ..." date range (this is how the real
-  extract samples look for continuous multi-day presence — see the two
-  original sample files if still available: `Витяг_з_ЖБД_на_100к_ЛИПЕНЬ_Клименко.docx`,
-  `Витяг_ЖБД_Бондаренко_07_2026.docx`).
-- Batch driver: `run_demo.py` now iterates every `.docx` file found in
-  `COMBAT_LOG_DIR` (`config.py`, default `journals/`), sorted chronologically
-  by filename date, and runs the per-day pipeline independently for each —
-  but it does not yet accept a requested date range, merge results across
-  days, or flag gaps (a requested date with no matching file — genuinely
-  absent vs. a matching failure — must always be surfaced explicitly, never
-  silently dropped). Those three remain open work.
-- Final rendering into the actual extract `.docx` template (header/table/
-  signature block matching the original samples).
+  fragments into a single "з ... по ..." date range (this is how one of
+  the real extract samples looks for continuous multi-day presence — see
+  the two original sample files if still available:
+  `Витяг_з_ЖБД_на_100к_ЛИПЕНЬ_Клименко.docx`,
+  `Витяг_ЖБД_Бондаренко_07_2026.docx`). `render.py` currently stacks every
+  `"found"` day as its own separate block in the output `.docx` rather
+  than collapsing repeats — the natural next step once this is built.
+- Batch driver / requested date range: both `run_demo.py` and
+  `generate_extract.py` iterate every `.docx` file found in
+  `COMBAT_LOG_DIR` (`config.py`, default `journals/`), sorted
+  chronologically by filename date, and run the per-day pipeline
+  independently for each — but neither yet accepts a requested date range
+  or flags gaps (a requested date with no matching file — genuinely absent
+  vs. a matching failure — must always be surfaced explicitly, never
+  silently dropped). Both remain open work.
 - A real accuracy benchmark: ~15-20 hand-verified (person, day, expected
   pointer) cases, tracked as a pass-rate, to catch regressions when
   `prefilter.py`'s finder functions change instead of discovering bugs one
@@ -402,10 +430,10 @@ prompting/heuristic guesswork when a bug recurs.
 
 Real person names, ranks, paragraph indices, and order numbers used for
 local regression testing live in `local_test_data.py` (gitignored — never
-commit this file; `run_demo.py` imports `TEST_CASES` from it when present
-and falls back to fictional placeholder names otherwise). This keeps real
-personnel data out of git while `journals/` (also gitignored) still holds
-the source `.docx` files.
+commit this file; both `run_demo.py` and `generate_extract.py` import
+`TEST_CASES` from it when present and fall back to fictional placeholder
+names otherwise). This keeps real personnel data out of git while
+`journals/` (also gitignored) still holds the source `.docx` files.
 
 Main sample file used throughout development: `ЖБД_02_04_2026.docx` (date
 2026-04-02, from the filename; left-column time format). It contains a
@@ -434,14 +462,18 @@ the filename-separator variants (see `journals/`, gitignored):
   `time_extraction.py`, and `prefilter.py`; kept separate to avoid a
   circular import between `assembly.py` and `time_extraction.py`),
   `docx_parsing.py`, `prefilter.py` (surname/full-name narrowing +
-  `build_pointer()`), `time_extraction.py`, `assembly.py`. `run_demo.py` is
-  the entry point — it wires the modules together and prints results for a
-  handful of hand-picked test people. It is intentionally *not* named
-  `test_*.py`: it's a print-based demo, not a pytest suite, and that
+  `build_pointer()`), `time_extraction.py`, `assembly.py`, `pipeline.py`
+  (`resolve_day_fragment()` — the per-day orchestration wrapper shared by
+  both entry points), `render.py` (fills `templates/1.docx`). Two entry
+  points: `run_demo.py` wires the modules together and prints results for
+  a handful of hand-picked test people (intentionally *not* named
+  `test_*.py` — it's a print-based demo, not a pytest suite, and that
   naming is reserved for the real accuracy benchmark still on the "not yet
-  built" list. Docx-template rendering and the batch driver (also not yet
-  built) should each get their own new module rather than growing an
-  existing one.
+  built" list); `generate_extract.py` does the same resolution but writes
+  a real extract `.docx` per person via `render.py`. The batch date-range/
+  gap-flagging driver (still not yet built) should get its own new module
+  rather than growing an existing one, consistent with how rendering got
+  its own (`render.py`) instead of being bolted onto `assembly.py`.
 - Code comments (and docstrings) are English — the actual document
   text/data (combat log source content, test names, runtime console
   output) stays Ukrainian since it's being extracted verbatim, not
