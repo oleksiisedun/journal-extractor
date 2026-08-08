@@ -164,7 +164,7 @@ run via `run.sh`)
     **Keeping the {дата} column aligned with {витяг}**: the two cells are
     filled independently, so without compensation each entry's date would
     drift from its matching text as soon as any earlier entry's assembled
-    text spans more than one paragraph. Two corrections, both in
+    text spans more than one paragraph. Three corrections, all in
     `render.py`:
     - `_equalize_leading_blanks()` trims whichever cell has more static
       leading paragraphs before its placeholder down to the other's count
@@ -200,6 +200,20 @@ run via `run.sh`)
       width or font ever change. Requires Pillow (for font glyph-width
       measurement) — not currently pinned in a requirements file, since
       this project doesn't have one yet.
+    - `_zero_space_after()`, applied inside `_expand_multiline_placeholder()`:
+      every paragraph in the template — including a blank filler one —
+      carries a fixed 8pt `w:spacing w:after`, which Word charges once per
+      *paragraph*, not once per *visual line*. A `{витяг}` paragraph that
+      wraps to N lines only pays that 8pt once, but the old padding built N
+      separate one-line filler paragraphs, each paying its own 8pt — so
+      the `{дата}` column ended up taller than the `{витяг}` text it was
+      supposed to track, drifting further with each earlier multi-line
+      entry (see bug log item 12). Fixed by having `_format_date_lines()`
+      emit `(text, suppress_space_after)` pairs: only as many filler
+      paragraphs per entry as that entry's real `{витяг}` paragraph count
+      keep normal space-after, the rest get it zeroed — matching the two
+      columns' total charged space-after instances exactly, regardless of
+      how many lines a paragraph wraps to.
 12. **Requested date range** (`person_spec.py`): each person's CLI spec may
     carry an optional trailing `DD.MM.YYYY` or `DD.MM.YYYY-DD.MM.YYYY`
     (e.g. `"старший солдат ЛЕВИЦЬКИЙ Микита Петрович

@@ -9,11 +9,12 @@ is shaped the way it is (non-contiguous `context_paragraph_indices` +
 single `target_paragraph_index`, no `redactions`). Items 6-9 are about
 `prefilter.py`'s finder functions directly and remain fully live
 regression cases. Item 10 is about `assembly.py`'s `strip_coordinates()`
-instead, and item 11 about the multi-order guardrail in
-`assembly.py`'s `assemble_fragment()`. If you touch `build_pointer()` or
-its finder functions, the coordinate/label stripping, or the multi-order
-guardrail in `assembly.py`, re-run against these exact cases before
-considering it done.
+instead, item 11 about the multi-order guardrail in
+`assembly.py`'s `assemble_fragment()`, and item 12 about `render.py`'s
+`{дата}`/`{витяг}` column-alignment padding. If you touch `build_pointer()`
+or its finder functions, the coordinate/label stripping, the multi-order
+guardrail in `assembly.py`, or `render.py`'s date-padding logic, re-run
+against these exact cases before considering it done.
 
 1. **Model redacted the target's own name.** Given a person who was the
    *only* name in their selected range, the model still put the target's
@@ -196,7 +197,41 @@ considering it done.
     than one order-bearing *paragraph* in context is still the real signal
     of a wrongly-merged foreign order.
 
-**Pattern across items 1-11**: the fixes that actually held up were the ones
+12. **A later entry's `{дата}` line rendered several lines below the
+    matching `{витяг}` text it was supposed to line up with, drifting
+    further with each earlier entry.** Real case
+    (`output/Витяг_ТРОПІН_2026-08-08.docx`, ТРОПІН Юрій Анатолійович,
+    three merged entries: 02.07.2026, 03.07-19.07.2026, 20.07-29.07.2026):
+    the third entry's date ("з 20.07.2026 по 29.07.2026") rendered next to
+    the *last* line of its own text block instead of the first. Root
+    cause: `_format_date_lines()` pads the `{дата}` cell up to each
+    entry's *measured visual line count* (`_entry_visual_line_count()`) by
+    inserting one blank docx paragraph per line — but every paragraph in
+    `templates/1.docx`, including a blank filler one, carries the
+    template's `w:spacing w:after="160"` (8pt space-after,
+    confirmed straight from the template's `Normal`-derived pPr, no
+    `contextualSpacing` override). Word/LibreOffice only charges that 8pt
+    once per real paragraph — a `{витяг}` paragraph that wraps to 13
+    visual lines still pays space-after once, after its 13th line — but
+    the old padding built 13 separate one-line filler paragraphs, each
+    paying its own 8pt. Measured on the real file: entry 1 (3 real
+    paragraphs, 12 visual lines) overpaid space-after by 9 extra
+    instances (+72pt), entry 2 (3 real paragraphs, 15 visual lines) by 12
+    more (+96pt) — 168pt (~5.9cm) of compounded drift by the time entry
+    3's date line was placed, which is why it visibly sank to the bottom
+    of its block. Fixed by having `_format_date_lines()` emit
+    `(text, suppress_space_after)` pairs instead of bare strings: only as
+    many filler paragraphs per entry as that entry's real `{витяг}`
+    paragraph count (`len(_entry_fragment_lines(entry))`) keep normal
+    space-after — the rest get it zeroed via the new `_zero_space_after()`
+    helper in `_expand_multiline_placeholder()` — so the `{дата}` column's
+    total charged space-after instances match the `{витяг}` column's
+    exactly, regardless of how many lines a paragraph wraps to. Which
+    specific filler paragraphs keep it doesn't matter for total block
+    height (a fixed 8pt is charged once per kept paragraph regardless of
+    its position in the block), only the count does.
+
+**Pattern across items 1-12**: the fixes that actually held up were the ones
 that removed the need for a model to get something right, not the ones
 that just asked it more firmly — and that pattern is *why* an LLM ended up
 fully removable: every one of its jobs eventually got moved into
