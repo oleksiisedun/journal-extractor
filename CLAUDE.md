@@ -167,6 +167,23 @@ run via `run.sh`)
     behavior: every day in `journals/` is searched. A malformed spec
     (`date_from` after `date_to`, invalid calendar date) only skips that
     one person; the rest of the batch still runs.
+13. **Cross-day merging** (`merge.py`): before rendering,
+    `merge_consecutive_entries()` collapses a run of consecutive `"found"`
+    days whose assembled text is byte-identical into a single entry
+    carrying `date_from`/`date_to` instead of a single `date` — this is
+    how real extract samples represent standing/recurring text (see
+    `samples/Витяг з ЖБД на 100к ЛИПЕНЬ Сімоненков.docx`: nine identical
+    days collapse into one `"з 01.07.2026 по 09.07.2026"` line instead of
+    nine stacked copies). A run only merges across *exactly* consecutive
+    calendar dates — a gap (person not found on an intervening day) always
+    breaks it, even if identical text resumes afterward, since merging
+    across a gap would misrepresent presence on the missing day(s). A
+    merged (multi-day) entry drops its `time`/`time_confidence` — no
+    single time correctly represents an entire range — while a single-day
+    entry (`date_from == date_to`) keeps showing its date + time exactly
+    as before. `render.py`'s `_format_date_lines()` renders a merged entry
+    as one `"з ... по ..."` line and a single-day entry as its usual
+    date-then-time pair.
 
 ## Time-of-day extraction
 
@@ -222,14 +239,6 @@ more files rather than assuming they generalize forever.
 
 ## Not yet built
 
-- Cross-day merging: collapsing consecutive days with byte-identical
-  fragments into a single "з ... по ..." date range (this is how one of
-  the real extract samples looks for continuous multi-day presence — see
-  the two original sample files if still available:
-  `Витяг_з_ЖБД_на_100к_ЛИПЕНЬ_Клименко.docx`,
-  `Витяг_ЖБД_Бондаренко_07_2026.docx`). `render.py` currently stacks every
-  `"found"` day as its own separate block in the output `.docx` rather
-  than collapsing repeats — the natural next step once this is built.
 - A real accuracy benchmark: ~15-20 hand-verified (person, day, expected
   pointer) cases, tracked as a pass-rate, to catch regressions when
   `prefilter.py`'s finder functions change instead of discovering bugs one
@@ -289,15 +298,17 @@ the filename-separator variants (see `journals/`, gitignored):
   `build_pointer()`), `time_extraction.py`, `assembly.py`, `pipeline.py`
   (`resolve_day_fragment()` — the per-day orchestration wrapper),
   `person_spec.py` (`parse_person_spec()` — optional per-person requested
-  date range), `render.py` (fills `templates/1.docx`). One entry point,
-  `generate_extract.py` — run via `run.sh` at the repo root, which just
-  forwards its CLI arguments through — wires the modules together,
+  date range), `merge.py` (`merge_consecutive_entries()` — cross-day
+  date-range merging), `render.py` (fills `templates/1.docx`). One entry
+  point, `generate_extract.py` — run via `run.sh` at the repo root, which
+  just forwards its CLI arguments through — wires the modules together,
   resolves each requested person's `"found"` days across `journals/`
-  (optionally narrowed to a requested date range), and writes a real
-  extract `.docx` per person via `render.py`. New standalone concerns
-  (`person_spec.py` is the precedent) get their own module rather than
-  growing an existing one, consistent with how rendering got its own
-  (`render.py`) instead of being bolted onto `assembly.py`.
+  (optionally narrowed to a requested date range), merges consecutive
+  identical days, and writes a real extract `.docx` per person via
+  `render.py`. New standalone concerns (`person_spec.py` is the precedent)
+  get their own module rather than growing an existing one, consistent
+  with how rendering got its own (`render.py`) instead of being bolted
+  onto `assembly.py`.
 - Code comments (and docstrings) are English — the actual document
   text/data (combat log source content, test names, runtime console
   output) stays Ukrainian since it's being extracted verbatim, not

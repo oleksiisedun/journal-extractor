@@ -99,15 +99,12 @@ single-person extraction with the full prefilter → pointer resolution →
 assemble → guardrail flow above, plus date (from filename, any of
 `_`/`.`/`-` separators) and time-of-day metadata attached to each result —
 exact when the source uses the inline time format, heuristic (flagged when
-uncertain) when it uses the left-column format. `render.py` +
-`generate_extract.py` render it into a real extract `.docx` per person,
-filling `templates/1.docx`.
+uncertain) when it uses the left-column format. `merge.py` collapses
+consecutive "found" days with byte-identical text into a single
+"з ... по ..." range. `render.py` + `generate_extract.py` render the
+result into a real extract `.docx` per person, filling `templates/1.docx`.
 
-Not yet built: cross-day merging into date ranges (each "found" day
-currently renders as its own stacked block rather than collapsing
-identical consecutive days into a "з ... по ..." range), a requested
-date-range filter with explicit gap-flagging, and a tracked accuracy
-benchmark. See `CLAUDE.md` for details.
+Not yet built: a tracked accuracy benchmark. See `CLAUDE.md` for details.
 
 ## Setup
 
@@ -165,13 +162,11 @@ if at least one day was found — writes
 also gitignored). When a date range is requested, any date in it with no
 matching `.docx` file is flagged as an explicit gap, distinct from a day
 that has a file but doesn't mention the person. The header's issuance
-date defaults to today; every stacked day in the table shows its own date
-+ time, with uncertain/unresolved times flagged inline in the document
-text itself rather than hidden.
-
-Every day is processed independently — nothing yet merges consecutive
-days into a single "з ... по ..." range (see `CLAUDE.md` → "Not yet
-built").
+date defaults to today; a stacked entry shows its own date + time when
+it's a single unmerged day, or a "з ... по ..." range (no time) when
+`merge.py` has collapsed a run of consecutive days with byte-identical
+text — uncertain/unresolved times are flagged inline in the document text
+itself rather than hidden.
 
 Everything here is regex/string logic over an already-parsed paragraph
 list, so it runs in well under a second per person/day — no particular
