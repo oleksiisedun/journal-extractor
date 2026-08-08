@@ -73,12 +73,12 @@ def _expand_multiline_placeholder(paragraph, lines):
 
 def _format_time_line(entry):
     """One line for a single-day entry's time: the raw value as-is when
-    confident, flagged inline when uncertain or entirely unresolved — never
-    silently presented as fact (same posture as CLAUDE.md's time-extraction
-    guardrails and generate_extract.py's console warnings)."""
+    confident, flagged inline when uncertain. Returns None when no time
+    could be resolved at all, so the caller omits the line rather than
+    presenting a fabricated warning as extract text."""
     time_value = entry["time"]
     if time_value is None:
-        return "час не визначено — перевірити"
+        return None
     if entry["time_confidence"] == "uncertain":
         return f"{time_value} (час приблизний — перевірити)"
     return time_value
@@ -98,7 +98,9 @@ def _format_date_lines(entries):
         date_from = entry["date_from"].strftime("%d.%m.%Y")
         if entry["date_from"] == entry["date_to"]:
             lines.append(date_from)
-            lines.append(_format_time_line(entry))
+            time_line = _format_time_line(entry)
+            if time_line is not None:
+                lines.append(time_line)
         else:
             date_to = entry["date_to"].strftime("%d.%m.%Y")
             lines.append(f"з {date_from} по {date_to}")

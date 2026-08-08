@@ -148,10 +148,13 @@ run via `run.sh`)
     `"found"` days are stacked as additional paragraphs inside that same
     single row (blank-paragraph separated) rather than cloning a new table
     row per day — matches the template's literal one-row structure.
-    Uncertain or entirely unresolved times are flagged inline in the
-    rendered text itself (e.g. `"05.00 (час приблизний — перевірити)"`),
-    never silently presented as fact. `generate_extract.py` is the entry
-    point: one `.docx` per person, written to `OUTPUT_DIR`
+    An uncertain time is flagged inline in the rendered text itself (e.g.
+    `"05.00 (час приблизний — перевірити)"`) rather than silently presented
+    as fact; an entirely unresolved time (no value at all) is left out of
+    the rendered text instead — inventing a placeholder value would violate
+    the verbatim rule, and the date line alone already makes the gap
+    visible to whoever reviews the extract. `generate_extract.py` is the
+    entry point: one `.docx` per person, written to `OUTPUT_DIR`
     (`config.py`).
 12. **Requested date range** (`person_spec.py`): each person's CLI spec may
     carry an optional trailing `DD.MM.YYYY` or `DD.MM.YYYY-DD.MM.YYYY`
