@@ -9,18 +9,10 @@ and rule documentation.
 import glob
 import os
 
-from config import COMBAT_LOG_DIR, FULL_NAME_AMBIGUITY_STRATEGY
+from config import COMBAT_LOG_DIR
 from docx_parsing import extract_date_from_filename, load_paragraph_columns, load_paragraphs
-from prefilter import (
-    build_pointer,
-    extract_full_name,
-    extract_surname,
-    filter_windows_by_full_name,
-    find_candidate_windows,
-    select_ambiguous_window,
-)
+from pipeline import resolve_day_fragment
 from time_extraction import assign_time_boundaries
-from assembly import assemble_fragment
 
 
 def main():
@@ -66,56 +58,23 @@ def main():
             print("=" * 70)
             print("Шукаємо:", person)
 
-            surname = extract_surname(person)
-            windows = find_candidate_windows(all_paragraphs, surname)
+            outcome = resolve_day_fragment(all_paragraphs, day_date, time_boundaries, person)
 
-            if not windows:
-                # the surname isn't in this day's text at all
-                print(">>> Прізвище відсутнє в тексті дня. found=false")
-                continue
-
-            # narrow by FULL name (not surname alone) - if this unambiguously
-            # narrows to a single window, that window can't mix in another
-            # namesake or another, unrelated order.
-            full_name = extract_full_name(person)
-            narrowed = filter_windows_by_full_name(all_paragraphs, windows, full_name)
-            if len(narrowed) == 0:
-                # full name isn't verbatim anywhere in this day's text, even
-                # though the surname is -- fail closed rather than guess
-                # from weaker (surname-only) context
-                print(">>> ПОВНЕ ПІБ не знайдено дослівно в тексті дня. found=false")
-                continue
-            elif len(narrowed) == 1:
-                windows_to_use = narrowed
-                note = "однозначно звужено до 1 вікна за повним ПІБ"
-            else:
-                windows_to_use = [select_ambiguous_window(narrowed, FULL_NAME_AMBIGUITY_STRATEGY)]
-                note = (f"увага: повне ПІБ дослівно зустрічається у {len(narrowed)} різних місцях - "
-                        f"справжня неоднозначність, беремо {FULL_NAME_AMBIGUITY_STRATEGY} входження")
-
-            print(f"    ({note})")
-
-            # target_paragraph_index is find_full_name_paragraph()'s result;
-            # context_paragraph_indices is the governing order + label
-            # header, walked back from there -- see build_pointer().
-            pointer = build_pointer(all_paragraphs, windows_to_use[0], full_name)
-            pointer["_surname_check"] = surname  # for the sanity check in assemble_fragment
-            print("Вказівник (pointer):", pointer)
-
-            if not pointer.get("found"):
-                print(">>> Не знайдено в цьому дні (перевір вручну — гепи не пропускаємо мовчки)")
-                continue
-
-            try:
-                result = assemble_fragment(
-                    all_paragraphs, pointer,
-                    date_value=day_date, time_boundaries=time_boundaries,
-                )
-            except ValueError as e:
-                print(f">>> ПОТРЕБУЄ РУЧНОЇ ПЕРЕВІРКИ — гвардрейл відхилив результат:\n{e}")
+            if outcome["pointer"] is None:
+                # surname or full name never even matched -- no pointer was built
+                print(f">>> {outcome['note']}")
                 print()
                 continue
 
+            print(f"    ({outcome['note']})")
+            print("Вказівник (pointer):", outcome["pointer"])
+
+            if outcome["status"] != "found":
+                print(f">>> {outcome['note']}")
+                print()
+                continue
+
+            result = outcome["result"]
             time_note = "" if result["time_confidence"] == "confident" else "  [!! ЧАС НЕВИЗНАЧЕНИЙ/НЕТОЧНИЙ — перевірити вручну !!]"
             print(f">>> Дата: {result['date'].isoformat()}    Час: {result['time']}{time_note}")
             print(">>> ЗІБРАНИЙ ФРАГМЕНТ (дослівно з джерела):")
