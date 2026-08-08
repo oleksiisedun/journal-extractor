@@ -13,6 +13,7 @@ import copy
 import os
 
 import docx
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 from text_wrap import estimate_wrapped_line_count
@@ -109,28 +110,51 @@ def _equalize_leading_blanks(date_cell, date_paragraph, fragment_cell, fragment_
         _remove_leading_blanks(fragment_cell, fragment_prefix - date_prefix)
 
 
+def _zero_space_after(p_element):
+    """Sets a cloned paragraph's space-after to 0 twips — used for {дата}
+    filler lines that stand in for one wrapped continuation line inside a
+    single {витяг} paragraph. Word only charges space-after once per
+    paragraph (after its last visual line), never once per wrapped line,
+    so a run of filler paragraphs that each kept the placeholder's normal
+    space-after would make the {дата} column taller than the {витяг} text
+    it's supposed to line up with — see docs/bug-log.md."""
+    pPr = p_element.find(qn("w:pPr"))
+    if pPr is None:
+        pPr = OxmlElement("w:pPr")
+        p_element.insert(0, pPr)
+    spacing = pPr.find(qn("w:spacing"))
+    if spacing is None:
+        spacing = OxmlElement("w:spacing")
+        pPr.append(spacing)
+    spacing.set(qn("w:after"), "0")
+
+
 def _expand_multiline_placeholder(paragraph, lines):
     """Replaces a paragraph whose only content is a placeholder run with
-    one paragraph per entry in `lines` (an empty string renders as a blank
-    paragraph, matching how real extract samples separate stacked entries).
-    Each new paragraph is a deep copy of the placeholder paragraph's XML,
-    so it inherits the exact same pPr/rPr formatting (font, size, spacing)
-    without this code needing to know or hardcode any of it."""
+    one paragraph per (text, suppress_space_after) pair in `lines` (empty
+    text renders as a blank paragraph, matching how real extract samples
+    separate stacked entries). Each new paragraph is a deep copy of the
+    placeholder paragraph's XML, so it inherits the exact same pPr/rPr
+    formatting (font, size, spacing) without this code needing to know or
+    hardcode any of it — except where `suppress_space_after` asks
+    _zero_space_after() to override the cloned space-after to 0."""
     p_element = paragraph._p
     parent = p_element.getparent()
 
-    for line in lines:
+    for text, suppress_space_after in lines:
         new_p = copy.deepcopy(p_element)
         runs = new_p.findall(qn("w:r"))
-        if line == "":
+        if text == "":
             for run_element in runs:
                 new_p.remove(run_element)
         else:
             t_elements = new_p.findall(".//" + qn("w:t"))
-            t_elements[0].text = line
+            t_elements[0].text = text
             t_elements[0].set(qn("xml:space"), "preserve")
             for run_element in runs[1:]:
                 new_p.remove(run_element)
+        if suppress_space_after:
+            _zero_space_after(new_p)
         p_element.addprevious(new_p)
 
     parent.remove(p_element)
@@ -238,27 +262,45 @@ def _entry_visual_line_count(entry, font_size_pt, first_line_width_pt, continuat
 
 
 def _format_date_lines(entries, font_size_pt, first_line_width_pt, continuation_width_pt):
-    """Builds the {дата} cell's lines: for a single-day entry (date_from ==
-    date_to), the date plus its time line; for a merged multi-day range, one
-    "з ... по ..." line and no time line — merge.merge_consecutive_entries()
-    already dropped the time for ranges since no single time correctly
-    represents the whole span. Each entry's date block is then padded with
-    blank lines up to that same entry's *measured visual line count* in the
-    {витяг} cell (_entry_visual_line_count) — not just its raw paragraph
-    count, since a paragraph that wraps to several visual lines in Word
-    still counts as one paragraph — so the two cells' entries start at
-    matching visual offsets and the date lines up with the top of its own
-    text block instead of landing early, inside a wrapped paragraph from an
-    earlier entry. The last entry is never padded — that padding only
-    exists to push a *later* entry's date down, and with no entry after it
-    padding would just add trailing blank paragraphs that make the {дата}
-    cell (and so the whole row) taller than the content needs, leaving a
-    gap at the bottom of the table. Blank-line separated between entries
-    (none trailing)."""
+    """Builds the {дата} cell's (text, suppress_space_after) pairs: for a
+    single-day entry (date_from == date_to), the date plus its time line;
+    for a merged multi-day range, one "з ... по ..." line and no time line
+    — merge.merge_consecutive_entries() already dropped the time for
+    ranges since no single time correctly represents the whole span. Each
+    entry's date block is then padded with filler lines up to that same
+    entry's *measured visual line count* in the {витяг} cell
+    (_entry_visual_line_count) — not just its raw paragraph count, since a
+    paragraph that wraps to several visual lines in Word still counts as
+    one paragraph — so the two cells' entries start at matching visual
+    offsets and the date lines up with the top of its own text block
+    instead of landing early, inside a wrapped paragraph from an earlier
+    entry.
+
+    Filler lines are one docx paragraph each, so — unlike a wrapped
+    continuation line inside a single {витяг} paragraph — every one of
+    them would normally still charge the placeholder's paragraph
+    space-after (see _zero_space_after's docstring and
+    docs/bug-log.md). Left unchecked this makes the {дата} column
+    taller than the {витяг} text it's supposed to track, and the drift
+    compounds entry over entry. To match, only as many filler lines as
+    the entry's real {витяг} *paragraph* count (_entry_fragment_lines)
+    minus its own real content lines are allowed to keep normal
+    space-after; the rest are marked for suppression. Which specific
+    filler lines keep it doesn't affect the block's total height (a
+    fixed amount of space-after is charged once per kept line,
+    regardless of position) — only the count does — so the kept ones are
+    simply placed first for simplicity.
+
+    The last entry is never padded — that padding only exists to push a
+    *later* entry's date down, and with no entry after it padding would
+    just add trailing blank paragraphs that make the {дата} cell (and so
+    the whole row) taller than the content needs, leaving a gap at the
+    bottom of the table. Blank-line separated between entries (none
+    trailing); the separator keeps normal space-after."""
     lines = []
     for i, entry in enumerate(entries):
         if i > 0:
-            lines.append("")
+            lines.append(("", False))
         entry_lines = []
         date_from = entry["date_from"].strftime("%d.%m.%Y")
         if entry["date_from"] == entry["date_to"]:
@@ -269,25 +311,33 @@ def _format_date_lines(entries, font_size_pt, first_line_width_pt, continuation_
         else:
             date_to = entry["date_to"].strftime("%d.%m.%Y")
             entry_lines.append(f"з {date_from} по {date_to}")
+        entry_pairs = [(line, False) for line in entry_lines]
         if i < len(entries) - 1:
             visual_line_count = _entry_visual_line_count(
                 entry, font_size_pt, first_line_width_pt, continuation_width_pt
             )
-            while len(entry_lines) < visual_line_count:
-                entry_lines.append("")
-        lines.extend(entry_lines)
+            fragment_paragraph_count = len(_entry_fragment_lines(entry))
+            filler_needed = max(0, visual_line_count - len(entry_lines))
+            spaced_filler_needed = min(
+                filler_needed, max(0, fragment_paragraph_count - len(entry_lines))
+            )
+            for j in range(filler_needed):
+                entry_pairs.append(("", j >= spaced_filler_needed))
+        lines.extend(entry_pairs)
     return lines
 
 
 def _format_fragment_lines(entries):
-    """Builds the {витяг} cell's lines: each entry's already-assembled
-    verbatim text split on its own paragraph breaks, blank-line separated
-    between entries (none trailing)."""
+    """Builds the {витяг} cell's (text, suppress_space_after) pairs: each
+    entry's already-assembled verbatim text split on its own paragraph
+    breaks (always normal space-after — suppression is only ever needed
+    for {дата}'s filler lines), blank-line separated between entries (none
+    trailing)."""
     lines = []
     for i, entry in enumerate(entries):
         if i > 0:
-            lines.append("")
-        lines.extend(_entry_fragment_lines(entry))
+            lines.append(("", False))
+        lines.extend((line, False) for line in _entry_fragment_lines(entry))
     return lines
 
 
