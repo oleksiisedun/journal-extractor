@@ -6,4 +6,4 @@ __pycache__/
 *.docx
 /journals/
 /samples/
-/local_test_data.py
+/src/local_test_data.py

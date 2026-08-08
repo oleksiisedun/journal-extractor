@@ -426,9 +426,10 @@ the filename-separator variants (see `journals/`, gitignored):
 
 ## Style/conventions in the existing code
 
-- Code is split into small, single-purpose modules at the repo root (flat,
-  no package directory — this project isn't distributed/packaged, so the
-  extra nesting isn't worth it): `config.py` (settings), `patterns.py`
+- Code is split into small, single-purpose modules under `src/` (flat within
+  that folder, no further package nesting — this project isn't
+  distributed/packaged, so deeper nesting isn't worth it): `config.py`
+  (settings), `patterns.py`
   (the one regex — `ORDER_REF_PATTERN` — shared between `assembly.py`,
   `time_extraction.py`, and `prefilter.py`; kept separate to avoid a
   circular import between `assembly.py` and `time_extraction.py`),

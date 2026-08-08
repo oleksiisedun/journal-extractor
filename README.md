@@ -121,7 +121,7 @@ carries a restricted classification and must never be committed.
 ## Running
 
 ```bash
-python3 run_demo.py
+python3 src/run_demo.py
 ```
 
 Edit the `test_cases` list in the script to real names known to be present
