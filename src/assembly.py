@@ -102,22 +102,26 @@ def assemble_fragment(paragraphs, pointer, date_value=None, time_boundaries=None
     indices = sorted(set(context_indices + [target_index]))
     parts = [para_dict[i] for i in indices]
 
-    # SANITY GUARDRAIL: if TWO DIFFERENT order numbers appear among the
-    # CONTEXT paragraphs (not among all selected paragraphs — the target
-    # paragraph itself may not contain a number at all), that's a sign
-    # context was pulled in from an unrelated, foreign order (found
-    # empirically, back when this pipeline used an LLM: context=[36, 89],
-    # where 36 belongs to БР18 for a DIFFERENT person, and 89 to the
-    # correct БР19). One person cannot be governed by two different orders
-    # at once within a single record — kept as defense in depth even though
-    # build_pointer() only ever adds a single preceding order paragraph.
-    order_refs = set()
-    for i in context_indices:
-        order_refs |= extract_order_refs(para_dict[i])
-    if len(order_refs) > 1:
+    # SANITY GUARDRAIL: if TWO DIFFERENT context paragraphs each cite an
+    # order number, that's a sign context was pulled in from an unrelated,
+    # foreign order (found empirically, back when this pipeline used an
+    # LLM: context=[36, 89], where 36 belongs to БР18 for a DIFFERENT
+    # person, and 89 to the correct БР19). build_pointer() only ever adds a
+    # single preceding order paragraph, so more than one order-bearing
+    # paragraph in context means two unrelated legal bases got merged.
+    # NOTE: a single paragraph legitimately citing multiple orders together
+    # as one joint legal basis (e.g. "на виконання БОЙОВОГО НАКАЗУ ...
+    # №БН5/Б3/ДСК ... та БОЙОВОГО РОЗПОРЯДЖЕННЯ ... №БР63/Б3/9Р/ДСК ...")
+    # is real and must NOT trip this — so the check counts order-bearing
+    # PARAGRAPHS, not distinct order numbers.
+    order_bearing_paragraphs = [i for i in context_indices if extract_order_refs(para_dict[i])]
+    if len(order_bearing_paragraphs) > 1:
+        conflicting_refs = {
+            ref for i in order_bearing_paragraphs for ref in extract_order_refs(para_dict[i])
+        }
         raise ValueError(
             f"PIPELINE ERROR: context paragraphs reference MULTIPLE "
-            f"different orders at once ({order_refs}) — a person can only "
+            f"different orders at once ({conflicting_refs}) — a person can only "
             f"be governed by one order. Result REJECTED.\n"
             f"context_paragraph_indices={context_indices}"
         )

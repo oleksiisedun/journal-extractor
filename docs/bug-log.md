@@ -9,9 +9,11 @@ is shaped the way it is (non-contiguous `context_paragraph_indices` +
 single `target_paragraph_index`, no `redactions`). Items 6-9 are about
 `prefilter.py`'s finder functions directly and remain fully live
 regression cases. Item 10 is about `assembly.py`'s `strip_coordinates()`
-instead. If you touch `build_pointer()` or its finder functions, or the
-coordinate/label stripping in `assembly.py`, re-run against these exact
-cases before considering it done.
+instead, and item 11 about the multi-order guardrail in
+`assembly.py`'s `assemble_fragment()`. If you touch `build_pointer()` or
+its finder functions, the coordinate/label stripping, or the multi-order
+guardrail in `assembly.py`, re-run against these exact cases before
+considering it done.
 
 1. **Model redacted the target's own name.** Given a person who was the
    *only* name in their selected range, the model still put the target's
@@ -175,7 +177,26 @@ cases before considering it done.
     `r"\1"`) — both still scoped to artifacts of coordinate stripping
     specifically (CLAUDE.md rule 3), not a general punctuation rule.
 
-**Pattern across items 1-10**: the fixes that actually held up were the ones
+11. **Multi-order guardrail (item 3) false-positived on a legitimate joint
+    legal basis.** Real case: a single order-reference paragraph reading
+    "на виконання БОЙОВОГО НАКАЗУ ... №БН5/Б3/ДСК від 22.06.2026 та
+    БОЙОВОГО РОЗПОРЯДЖЕННЯ ... №БР63/Б3/9Р/ДСК від 30.06.26, з метою..." —
+    ONE paragraph citing two orders together as a single combined legal
+    basis for the same action, which is real and correct, not a sign of
+    two unrelated bases getting merged. The old guardrail counted distinct
+    order *numbers* across all context paragraphs, so this single
+    paragraph alone tripped `len(order_refs) > 1` and got rejected. Fixed
+    by counting order-*bearing context paragraphs* instead of distinct
+    order numbers (`assembly.py`, `assemble_fragment()`): still rejects
+    the original item-3 shape (two different context paragraphs, each
+    citing its own order — a real cross-order merge), but no longer trips
+    when multiple order numbers appear together inside one paragraph.
+    Consistent with `build_pointer()` only ever walking back to a single
+    preceding order paragraph (see pipeline step 4 in CLAUDE.md) — more
+    than one order-bearing *paragraph* in context is still the real signal
+    of a wrongly-merged foreign order.
+
+**Pattern across items 1-11**: the fixes that actually held up were the ones
 that removed the need for a model to get something right, not the ones
 that just asked it more firmly — and that pattern is *why* an LLM ended up
 fully removable: every one of its jobs eventually got moved into
