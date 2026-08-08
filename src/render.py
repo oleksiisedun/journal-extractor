@@ -4,9 +4,9 @@ principle"). Every placeholder is replaced with text that already came
 verbatim out of assembly.assemble_fragment(); this module only arranges
 that text into the template's paragraphs, it never invents any of it.
 
-Cross-day date-range merging ("з ... по ...") is NOT done here — each
-entry renders as its own stacked date/fragment block, one after another.
-See CLAUDE.md's "Not yet built" list.
+Callers are expected to have already run merge.merge_consecutive_entries()
+on the chronological "found" days, so `entries` here carries "date_from"/
+"date_to" (equal for a single unmerged day) rather than a bare "date".
 """
 
 import copy
@@ -72,9 +72,9 @@ def _expand_multiline_placeholder(paragraph, lines):
 
 
 def _format_time_line(entry):
-    """One line for an entry's time: the raw value as-is when confident,
-    flagged inline when uncertain or entirely unresolved — never silently
-    presented as fact (same posture as CLAUDE.md's time-extraction
+    """One line for a single-day entry's time: the raw value as-is when
+    confident, flagged inline when uncertain or entirely unresolved — never
+    silently presented as fact (same posture as CLAUDE.md's time-extraction
     guardrails and generate_extract.py's console warnings)."""
     time_value = entry["time"]
     if time_value is None:
@@ -85,14 +85,23 @@ def _format_time_line(entry):
 
 
 def _format_date_lines(entries):
-    """Builds the {дата} cell's lines: date + time per entry, blank-line
-    separated between entries (none trailing)."""
+    """Builds the {дата} cell's lines: for a single-day entry (date_from ==
+    date_to), the date plus its time line; for a merged multi-day range, one
+    "з ... по ..." line and no time line — merge.merge_consecutive_entries()
+    already dropped the time for ranges since no single time correctly
+    represents the whole span. Blank-line separated between entries (none
+    trailing)."""
     lines = []
     for i, entry in enumerate(entries):
         if i > 0:
             lines.append("")
-        lines.append(entry["date"].strftime("%d.%m.%Y"))
-        lines.append(_format_time_line(entry))
+        date_from = entry["date_from"].strftime("%d.%m.%Y")
+        if entry["date_from"] == entry["date_to"]:
+            lines.append(date_from)
+            lines.append(_format_time_line(entry))
+        else:
+            date_to = entry["date_to"].strftime("%d.%m.%Y")
+            lines.append(f"з {date_from} по {date_to}")
     return lines
 
 
@@ -110,11 +119,12 @@ def _format_fragment_lines(entries):
 
 def render_extract(entries, issue_date, template_path, output_path):
     """Fills `template_path` with `entries` (a chronological list of
-    assemble_fragment()'s result dicts — {"text", "date", "time",
-    "time_confidence"} — for one person's "found" days only; callers are
-    expected to have already filtered out "not_found"/"rejected" days) and
-    saves the result to `output_path`. `issue_date` fills the header's
-    {дата витягу} placeholder.
+    merge.merge_consecutive_entries()'s result dicts — {"text", "date_from",
+    "date_to", "time", "time_confidence"} — for one person's "found" days
+    only; callers are expected to have already filtered out "not_found"/
+    "rejected" days and run the merge step) and saves the result to
+    `output_path`. `issue_date` fills the header's {дата витягу}
+    placeholder.
     """
     if not entries:
         raise ValueError("No fragments to render — entries is empty.")

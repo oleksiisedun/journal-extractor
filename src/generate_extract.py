@@ -8,9 +8,9 @@ silently dropped.
 A per-person requested date/date-range (optional trailing token on the
 CLI spec, see person_spec.parse_person_spec()) narrows which journals/
 days are searched and flags dates in that range with no matching file.
-Cross-day date-range merging ("з ... по ...") is NOT done here — every
-"found" day becomes its own stacked entry in the output. See CLAUDE.md's
-"Not yet built" list.
+Consecutive "found" days with byte-identical assembled text are collapsed
+into a single "з ... по ..." range entry by merge.merge_consecutive_entries()
+before rendering.
 
 Run via run.sh — see README.md for setup/run instructions.
 """
@@ -22,6 +22,7 @@ from datetime import date, timedelta
 
 from config import COMBAT_LOG_DIR, OUTPUT_DIR, TEMPLATE_PATH
 from docx_parsing import extract_date_from_filename, load_paragraph_columns, load_paragraphs
+from merge import merge_consecutive_entries
 from person_spec import parse_person_spec
 from pipeline import resolve_day_fragment
 from prefilter import extract_surname
@@ -125,7 +126,7 @@ def main():
 
         surname = extract_surname(full_name)
         output_path = os.path.join(OUTPUT_DIR, f"Витяг_{surname}_{issue_date.isoformat()}.docx")
-        render_extract(entries, issue_date, TEMPLATE_PATH, output_path)
+        render_extract(merge_consecutive_entries(entries), issue_date, TEMPLATE_PATH, output_path)
         print(f"  >>> Створено: {output_path}  ({len(entries)} з {len(relevant_days)} днів)")
 
 
