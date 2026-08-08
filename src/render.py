@@ -171,7 +171,7 @@ def _format_time_line(entry):
 def _entry_fragment_lines(entry):
     """The {витяг} cell's paragraph lines for one entry — its already-
     assembled verbatim text split on the paragraph breaks assembly.py
-    joined with "\\n\\n"."""
+    joined with "\\n"."""
     return entry["text"].split("\n")
 
 

@@ -131,7 +131,7 @@ def assemble_fragment(paragraphs, pointer, date_value=None, time_boundaries=None
     # (see strip_coordinates, strip_location_labels)
     parts = [strip_location_labels(strip_coordinates(p)) for p in parts]
 
-    fragment_text = "\n\n".join(parts)
+    fragment_text = "\n".join(parts)
 
     # SANITY GUARDRAIL: the target person's surname must physically be
     # present in the final fragment — catches target_paragraph_index
