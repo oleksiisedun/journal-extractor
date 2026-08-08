@@ -137,16 +137,11 @@ def _expand_multiline_placeholder(paragraph, lines):
 
 
 def _format_time_line(entry):
-    """One line for a single-day entry's time: the raw value as-is when
-    confident, flagged inline when uncertain. Returns None when no time
-    could be resolved at all, so the caller omits the line rather than
-    presenting a fabricated warning as extract text."""
-    time_value = entry["time"]
-    if time_value is None:
-        return None
-    if entry["time_confidence"] == "uncertain":
-        return f"{time_value} (час приблизний — перевірити)"
-    return time_value
+    """One line for a single-day entry's time: the raw value as-is,
+    confident or uncertain alike. Returns None when no time could be
+    resolved at all, so the caller omits the line rather than presenting a
+    fabricated value as extract text."""
+    return entry["time"]
 
 
 def _entry_fragment_lines(entry):

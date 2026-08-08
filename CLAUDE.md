@@ -148,13 +148,17 @@ run via `run.sh`)
     `"found"` days are stacked as additional paragraphs inside that same
     single row (blank-paragraph separated) rather than cloning a new table
     row per day — matches the template's literal one-row structure.
-    An uncertain time is flagged inline in the rendered text itself (e.g.
-    `"05.00 (час приблизний — перевірити)"`) rather than silently presented
-    as fact; an entirely unresolved time (no value at all) is left out of
-    the rendered text instead — inventing a placeholder value would violate
-    the verbatim rule, and the date line alone already makes the gap
-    visible to whoever reviews the extract. `generate_extract.py` is the
-    entry point: one `.docx` per person, written to `OUTPUT_DIR`
+    An uncertain time renders identically to a confident one — just the raw
+    value, no inline warning — since `_format_time_line()` no longer
+    branches on `time_confidence`; an entirely unresolved time (no value at
+    all) is still left out of the rendered text, since inventing a
+    placeholder value would violate the verbatim rule and the date line
+    alone already makes that gap visible to whoever reviews the extract.
+    `time_confidence` is still computed and threaded through
+    `assemble_fragment()`/`merge_consecutive_entries()` even though nothing
+    currently reads it for rendering — kept as domain data in case a future
+    consumer (e.g. console output) needs it again. `generate_extract.py` is
+    the entry point: one `.docx` per person, written to `OUTPUT_DIR`
     (`config.py`).
 
     **Keeping the {дата} column aligned with {витяг}**: the two cells are
@@ -265,9 +269,10 @@ exactly. Instead, a snap-to-nearest-boundary heuristic is used
 3. A snap is marked `"uncertain"` if it traveled more than a slack
    threshold (15 raw paragraphs) from its predicted cut point, or if two
    labels collided on the same boundary (ambiguous which one really
-   governs it — the later, more specific time is kept). `"uncertain"`
-   results must be surfaced to the user, never silently presented as fact
-   — same posture as the surname/order-number guardrails.
+   governs it — the later, more specific time is kept). This confidence
+   value is still computed and threaded through the pipeline as of this
+   writing but is no longer surfaced in the rendered `.docx` (see step 11
+   above) — it renders identically to a confident time.
 
 `assign_time_boundaries()` is the dispatcher: it tries (a) first (via
 `_assign_time_boundaries_inline()`) and only falls back to (b) if no
