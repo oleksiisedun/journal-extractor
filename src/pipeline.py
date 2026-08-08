@@ -1,9 +1,9 @@
 """Per-day, per-person pointer resolution (no LLM — see CLAUDE.md's "Core
 architectural principle"). Wraps the surname prefilter -> full-name
 narrowing -> build_pointer() -> assemble_fragment() chain from
-prefilter.py/assembly.py into one reusable call, so entry points (the
-console demo in run_demo.py, the .docx generator in generate_extract.py)
-don't each re-implement the same not-found/ambiguous/guardrail branching.
+prefilter.py/assembly.py into one reusable call, so generate_extract.py
+doesn't have to re-implement the not-found/ambiguous/guardrail branching
+inline.
 """
 
 from prefilter import (
@@ -29,8 +29,8 @@ def resolve_day_fragment(all_paragraphs, day_date, time_boundaries, full_name):
       {"status": "not_found", "result": None, "note": str, "pointer": None}
       {"status": "rejected", "result": None, "note": str, "pointer": dict}  # guardrail
     `note` is a human-readable Ukrainian explanation, suitable for printing
-    or logging — mirrors what run_demo.py used to print inline. `pointer`
-    is build_pointer()'s raw dict (when resolution got that far) — kept
+    or logging. `pointer` is build_pointer()'s raw dict (when resolution
+    got that far) — kept
     around for the same real-file debugging workflow described in
     CLAUDE.md's bug log (every prefilter.py fix started from inspecting a
     real pointer that came out wrong).

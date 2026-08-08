@@ -52,9 +52,9 @@ the source table's (non-paragraph-aligned) left time column
 `CLAUDE.md` → "Time-of-day extraction" for why the left-column case can't
 be an exact lookup, and how uncertain results are flagged rather than
 guessed. `pipeline.py`'s `resolve_day_fragment()` wraps the whole
-prefilter → pointer → assemble chain into one call (used by both
-`run_demo.py` and `generate_extract.py`, so the not-found/ambiguous/
-guardrail branching only lives in one place). `render.py`'s
+prefilter → pointer → assemble chain into one call (used by
+`generate_extract.py`, so the not-found/ambiguous/guardrail branching
+only lives in one place). `render.py`'s
 `render_extract()` then fills `templates/1.docx`'s `{дата витягу}` /
 `{дата}` / `{витяг}` placeholders with a person's assembled fragments —
 every value it writes came verbatim out of `assemble_fragment()`, so
@@ -99,8 +99,7 @@ single-person extraction with the full prefilter → pointer resolution →
 assemble → guardrail flow above, plus date (from filename, any of
 `_`/`.`/`-` separators) and time-of-day metadata attached to each result —
 exact when the source uses the inline time format, heuristic (flagged when
-uncertain) when it uses the left-column format. `run_demo.py` prints this
-to the console for a hand-picked list of people; `render.py` +
+uncertain) when it uses the left-column format. `render.py` +
 `generate_extract.py` render it into a real extract `.docx` per person,
 filling `templates/1.docx`.
 
@@ -131,41 +130,40 @@ every `*.docx` file anywhere in the repo, including generated output).
 
 ## Running
 
-**Console demo** — prints assembled fragments without writing a file:
-
-```bash
-python3 src/run_demo.py
-```
-
-Edit the `test_cases` list in the script to real names known to be present
-in your source files. The script runs every `.docx` file in `journals/` in
-chronological order and, per file per person, prints: the narrowing note,
-the resolved pointer, and the final assembled fragment with its date and
-heuristically-resolved time (or a `found: false` / guardrail rejection). A
-time flagged `uncertain` is printed with an explicit warning — never
-presented as fact without review.
-
 **Generate a real extract `.docx`** — one file per person, filling
-`templates/1.docx`:
+`templates/1.docx` — via `run.sh`, which just forwards its arguments to
+`src/generate_extract.py`. Names to extract can be passed either as
+inline arguments or as a path to a newline-delimited `.txt` file:
 
 ```bash
-python3 src/generate_extract.py
+./run.sh "молодший сержант КОТИК Андрій Сергійович"
+./run.sh "молодший сержант КОТИК Андрій Сергійович" "солдат ТУЗ І.В."
+./run.sh ./names.txt
 ```
 
-Edit the `test_cases` list in the script the same way. For each person, it
-walks every `.docx` file in `journals/` chronologically via
-`resolve_day_fragment()`, collects the days that resolve to `found`, prints
-a warning for any day that doesn't (never silently dropped), and — if at
-least one day was found — writes `output/Витяг_<ПРІЗВИЩЕ>_<issue
-date>.docx` (`OUTPUT_DIR` in `config.py`; also gitignored). The header's
-issuance date defaults to today; every stacked day in the table shows its
-own date + time, with uncertain/unresolved times flagged inline in the
-document text itself rather than hidden.
+Each name must be a full `"rank SURNAME Firstname Patronymic"` string
+(surname in caps), the same shape `prefilter.py`'s narrowing expects. A
+`.txt` file is detected automatically whenever exactly one argument is
+given and it's an existing file path — one name per line, blank lines
+skipped. Running `./run.sh` with no arguments prints a usage message and
+exits without doing anything; there is no fallback placeholder-name list
+anymore, so real names always have to be supplied explicitly (and never
+committed — keep any local names file out of version control yourself).
 
-Both scripts run each day independently — neither merges consecutive days
-into a single "з ... по ..." range, filters to a requested date range, or
-flags genuinely-absent dates as gaps yet (see `CLAUDE.md` → "Not yet
-built").
+For each person, the script walks every `.docx` file in `journals/`
+chronologically via `resolve_day_fragment()`, collects the days that
+resolve to `found`, prints a warning for any day that doesn't (never
+silently dropped), and — if at least one day was found — writes
+`output/Витяг_<ПРІЗВИЩЕ>_<issue date>.docx` (`OUTPUT_DIR` in `config.py`;
+also gitignored). The header's issuance date defaults to today; every
+stacked day in the table shows its own date + time, with
+uncertain/unresolved times flagged inline in the document text itself
+rather than hidden.
+
+Every day is processed independently — nothing yet merges consecutive
+days into a single "з ... по ..." range, filters to a requested date
+range, or flags genuinely-absent dates as gaps (see `CLAUDE.md` → "Not
+yet built").
 
 Everything here is regex/string logic over an already-parsed paragraph
 list, so it runs in well under a second per person/day — no particular

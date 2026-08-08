@@ -91,8 +91,8 @@ as-is. The bug log is kept because it documents *why* the deterministic
 finder functions look the way they do — every entry describes a real
 failure that shaped `prefilter.py`, not a hypothetical one.
 
-## Pipeline (as currently implemented — entry points `run_demo.py` /
-`generate_extract.py`)
+## Pipeline (as currently implemented — entry point `generate_extract.py`,
+run via `run.sh`)
 
 1. **Parse** a day's `.docx` into an indexed paragraph list via
    `python-docx` (NOT `pandoc` — pandoc reflows/normalizes whitespace,
@@ -160,11 +160,10 @@ failure that shaped `prefilter.py`, not a hypothetical one.
 10. **Per-day resolution wrapper** (`pipeline.py`): `resolve_day_fragment()`
     wraps steps 2-9 (surname prefilter through `assemble_fragment()`) into
     one call returning `{"status": "found"|"not_found"|"rejected",
-    "result", "pointer", "note"}` — used by both `run_demo.py` (prints
-    console output for a hand-picked list of people) and
-    `generate_extract.py` (collects one person's `"found"` days across all
-    of `journals/`), so the not-found/ambiguous/guardrail branching isn't
-    duplicated between entry points.
+    "result", "pointer", "note"}` — called by `generate_extract.py` once
+    per person per day, collecting each person's `"found"` days across all
+    of `journals/`, so the not-found/ambiguous/guardrail branching lives
+    in one place rather than being duplicated inline.
 11. **Template rendering** (`render.py`): `render_extract()` fills
     `templates/1.docx` — the real extract template, three placeholders:
     `{дата витягу}` (issuance date, in the header) and `{дата}` / `{витяг}`
@@ -247,14 +246,13 @@ more files rather than assuming they generalize forever.
   `Витяг_ЖБД_Бондаренко_07_2026.docx`). `render.py` currently stacks every
   `"found"` day as its own separate block in the output `.docx` rather
   than collapsing repeats — the natural next step once this is built.
-- Batch driver / requested date range: both `run_demo.py` and
-  `generate_extract.py` iterate every `.docx` file found in
-  `COMBAT_LOG_DIR` (`config.py`, default `journals/`), sorted
-  chronologically by filename date, and run the per-day pipeline
-  independently for each — but neither yet accepts a requested date range
-  or flags gaps (a requested date with no matching file — genuinely absent
-  vs. a matching failure — must always be surfaced explicitly, never
-  silently dropped). Both remain open work.
+- Batch driver / requested date range: `generate_extract.py` iterates
+  every `.docx` file found in `COMBAT_LOG_DIR` (`config.py`, default
+  `journals/`), sorted chronologically by filename date, and runs the
+  per-day pipeline independently for each — but doesn't yet accept a
+  requested date range or flag gaps (a requested date with no matching
+  file — genuinely absent vs. a matching failure — must always be
+  surfaced explicitly, never silently dropped). Remains open work.
 - A real accuracy benchmark: ~15-20 hand-verified (person, day, expected
   pointer) cases, tracked as a pass-rate, to catch regressions when
   `prefilter.py`'s finder functions change instead of discovering bugs one
@@ -276,19 +274,19 @@ each entry is a real regression case to re-check, not a hypothetical one.
 
 ## Known test data
 
-Real person names, ranks, paragraph indices, and order numbers used for
-local regression testing live in `local_test_data.py` (gitignored — never
-commit this file; both `run_demo.py` and `generate_extract.py` import
-`TEST_CASES` from it when present and fall back to fictional placeholder
-names otherwise). This keeps real personnel data out of git while
-`journals/` (also gitignored) still holds the source `.docx` files.
+Person names are passed to `run.sh` directly at run time — either as
+inline arguments or via a `.txt` file (one `"rank SURNAME Firstname
+Patronymic"` string per line; see `load_people()` in
+`generate_extract.py`). There's no committed or gitignored fixture file
+for real names anymore; keep any local names file you use for regression
+testing out of version control yourself. `journals/` (gitignored) still
+holds the source `.docx` files.
 
 Main sample file used throughout development: `ЖБД_02_04_2026.docx` (date
 2026-04-02, from the filename; left-column time format). It contains a
 same-surname/different-order pair — two people sharing one surname, each
 governed by a different order — which is the namesake/disambiguation
-regression test; keep using it when touching the narrowing logic. See
-`local_test_data.py` for the exact names/paragraph indices/order numbers.
+regression test; keep using it when touching the narrowing logic.
 
 Two more real sample files, added to exercise the other time format and
 the filename-separator variants (see `journals/`, gitignored):
@@ -311,17 +309,16 @@ the filename-separator variants (see `journals/`, gitignored):
   circular import between `assembly.py` and `time_extraction.py`),
   `docx_parsing.py`, `prefilter.py` (surname/full-name narrowing +
   `build_pointer()`), `time_extraction.py`, `assembly.py`, `pipeline.py`
-  (`resolve_day_fragment()` — the per-day orchestration wrapper shared by
-  both entry points), `render.py` (fills `templates/1.docx`). Two entry
-  points: `run_demo.py` wires the modules together and prints results for
-  a handful of hand-picked test people (intentionally *not* named
-  `test_*.py` — it's a print-based demo, not a pytest suite, and that
-  naming is reserved for the real accuracy benchmark still on the "not yet
-  built" list); `generate_extract.py` does the same resolution but writes
-  a real extract `.docx` per person via `render.py`. The batch date-range/
-  gap-flagging driver (still not yet built) should get its own new module
-  rather than growing an existing one, consistent with how rendering got
-  its own (`render.py`) instead of being bolted onto `assembly.py`.
+  (`resolve_day_fragment()` — the per-day orchestration wrapper),
+  `render.py` (fills `templates/1.docx`). One entry point,
+  `generate_extract.py` — run via `run.sh` at the repo root, which just
+  forwards its CLI arguments through — wires the modules together,
+  resolves each requested person's `"found"` days across `journals/`, and
+  writes a real extract `.docx` per person via `render.py`. The batch
+  date-range/gap-flagging driver (still not yet built) should get its own
+  new module rather than growing an existing one, consistent with how
+  rendering got its own (`render.py`) instead of being bolted onto
+  `assembly.py`.
 - Code comments (and docstrings) are English — the actual document
   text/data (combat log source content, test names, runtime console
   output) stays Ukrainian since it's being extracted verbatim, not

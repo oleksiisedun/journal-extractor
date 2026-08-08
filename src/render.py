@@ -75,7 +75,7 @@ def _format_time_line(entry):
     """One line for an entry's time: the raw value as-is when confident,
     flagged inline when uncertain or entirely unresolved — never silently
     presented as fact (same posture as CLAUDE.md's time-extraction
-    guardrails and run_demo.py's console warning)."""
+    guardrails and generate_extract.py's console warnings)."""
     time_value = entry["time"]
     if time_value is None:
         return "час не визначено — перевірити"
