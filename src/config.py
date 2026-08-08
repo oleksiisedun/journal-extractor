@@ -1,6 +1,8 @@
 """Runtime settings for the extraction pipeline."""
 
 COMBAT_LOG_DIR = "journals"  # directory of daily combat log .docx files
+TEMPLATE_PATH = "templates/1.docx"  # extract .docx template with {placeholders}
+OUTPUT_DIR = "output"  # generated extract .docx files land here
 
 # When the full name (surname + first name + patronymic) occurs verbatim in
 # more than one place in a day's text -- a genuine ambiguity, e.g. two
