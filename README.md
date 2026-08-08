@@ -139,31 +139,39 @@ inline arguments or as a path to a newline-delimited `.txt` file:
 ./run.sh "молодший сержант КОТИК Андрій Сергійович"
 ./run.sh "молодший сержант КОТИК Андрій Сергійович" "солдат ТУЗ І.В."
 ./run.sh ./names.txt
+./run.sh "старший солдат ЛЕВИЦЬКИЙ Микита Петрович 02.04.2026"
+./run.sh "старший солдат ЛЕВИЦЬКИЙ Микита Петрович 02.04.2026-23.04.2026"
 ```
 
 Each name must be a full `"rank SURNAME Firstname Patronymic"` string
-(surname in caps), the same shape `prefilter.py`'s narrowing expects. A
-`.txt` file is detected automatically whenever exactly one argument is
-given and it's an existing file path — one name per line, blank lines
-skipped. Running `./run.sh` with no arguments prints a usage message and
-exits without doing anything; there is no fallback placeholder-name list
-anymore, so real names always have to be supplied explicitly (and never
-committed — keep any local names file out of version control yourself).
+(surname in caps), the same shape `prefilter.py`'s narrowing expects,
+optionally followed by a requested `DD.MM.YYYY` date or
+`DD.MM.YYYY-DD.MM.YYYY` inclusive range (`person_spec.py`) that limits the
+search to those day(s) instead of every file in `journals/`. A `.txt`
+file is detected automatically whenever exactly one argument is given and
+it's an existing file path — one name (with its own optional date/range)
+per line, blank lines skipped. Running `./run.sh` with no arguments
+prints a usage message and exits without doing anything; there is no
+fallback placeholder-name list anymore, so real names always have to be
+supplied explicitly (and never committed — keep any local names file out
+of version control yourself).
 
 For each person, the script walks every `.docx` file in `journals/`
-chronologically via `resolve_day_fragment()`, collects the days that
-resolve to `found`, prints a warning for any day that doesn't (never
-silently dropped), and — if at least one day was found — writes
+chronologically (or just the requested date range, if one was given) via
+`resolve_day_fragment()`, collects the days that resolve to `found`,
+prints a warning for any day that doesn't (never silently dropped), and —
+if at least one day was found — writes
 `output/Витяг_<ПРІЗВИЩЕ>_<issue date>.docx` (`OUTPUT_DIR` in `config.py`;
-also gitignored). The header's issuance date defaults to today; every
-stacked day in the table shows its own date + time, with
-uncertain/unresolved times flagged inline in the document text itself
-rather than hidden.
+also gitignored). When a date range is requested, any date in it with no
+matching `.docx` file is flagged as an explicit gap, distinct from a day
+that has a file but doesn't mention the person. The header's issuance
+date defaults to today; every stacked day in the table shows its own date
++ time, with uncertain/unresolved times flagged inline in the document
+text itself rather than hidden.
 
 Every day is processed independently — nothing yet merges consecutive
-days into a single "з ... по ..." range, filters to a requested date
-range, or flags genuinely-absent dates as gaps (see `CLAUDE.md` → "Not
-yet built").
+days into a single "з ... по ..." range (see `CLAUDE.md` → "Not yet
+built").
 
 Everything here is regex/string logic over an already-parsed paragraph
 list, so it runs in well under a second per person/day — no particular

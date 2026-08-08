@@ -153,6 +153,20 @@ run via `run.sh`)
     never silently presented as fact. `generate_extract.py` is the entry
     point: one `.docx` per person, written to `OUTPUT_DIR`
     (`config.py`).
+12. **Requested date range** (`person_spec.py`): each person's CLI spec may
+    carry an optional trailing `DD.MM.YYYY` or `DD.MM.YYYY-DD.MM.YYYY`
+    (e.g. `"старший солдат ЛЕВИЦЬКИЙ Микита Петрович
+    02.04.2026-23.04.2026"`), parsed by `parse_person_spec()` and used in
+    `generate_extract.py`'s per-person loop to filter which of
+    `journals/`'s already-loaded days get searched for that person. When a
+    range is given, every calendar date in it with no matching `.docx`
+    file is printed as an explicit gap (`"ЖУРНАЛ ВІДСУТНІЙ"`) — distinct
+    from the day-has-a-file-but-person-not-mentioned case (`"пропущено"`)
+    — since the two are genuinely different failure modes and must never
+    be conflated. No trailing date at all preserves the original
+    behavior: every day in `journals/` is searched. A malformed spec
+    (`date_from` after `date_to`, invalid calendar date) only skips that
+    one person; the rest of the batch still runs.
 
 ## Time-of-day extraction
 
@@ -216,13 +230,6 @@ more files rather than assuming they generalize forever.
   `Витяг_ЖБД_Бондаренко_07_2026.docx`). `render.py` currently stacks every
   `"found"` day as its own separate block in the output `.docx` rather
   than collapsing repeats — the natural next step once this is built.
-- Batch driver / requested date range: `generate_extract.py` iterates
-  every `.docx` file found in `COMBAT_LOG_DIR` (`config.py`, default
-  `journals/`), sorted chronologically by filename date, and runs the
-  per-day pipeline independently for each — but doesn't yet accept a
-  requested date range or flag gaps (a requested date with no matching
-  file — genuinely absent vs. a matching failure — must always be
-  surfaced explicitly, never silently dropped). Remains open work.
 - A real accuracy benchmark: ~15-20 hand-verified (person, day, expected
   pointer) cases, tracked as a pass-rate, to catch regressions when
   `prefilter.py`'s finder functions change instead of discovering bugs one
@@ -245,8 +252,10 @@ each entry is a real regression case to re-check, not a hypothetical one.
 
 Person names are passed to `run.sh` directly at run time — either as
 inline arguments or via a `.txt` file (one `"rank SURNAME Firstname
-Patronymic"` string per line; see `load_people()` in
-`generate_extract.py`). There's no committed or gitignored fixture file
+Patronymic"` string per line, optionally followed by a requested
+`DD.MM.YYYY` or `DD.MM.YYYY-DD.MM.YYYY`; see `load_people()` in
+`generate_extract.py` and `parse_person_spec()` in `person_spec.py`).
+There's no committed or gitignored fixture file
 for real names anymore; keep any local names file you use for regression
 testing out of version control yourself. `journals/` (gitignored) still
 holds the source `.docx` files.
@@ -279,15 +288,16 @@ the filename-separator variants (see `journals/`, gitignored):
   `docx_parsing.py`, `prefilter.py` (surname/full-name narrowing +
   `build_pointer()`), `time_extraction.py`, `assembly.py`, `pipeline.py`
   (`resolve_day_fragment()` — the per-day orchestration wrapper),
-  `render.py` (fills `templates/1.docx`). One entry point,
+  `person_spec.py` (`parse_person_spec()` — optional per-person requested
+  date range), `render.py` (fills `templates/1.docx`). One entry point,
   `generate_extract.py` — run via `run.sh` at the repo root, which just
   forwards its CLI arguments through — wires the modules together,
-  resolves each requested person's `"found"` days across `journals/`, and
-  writes a real extract `.docx` per person via `render.py`. The batch
-  date-range/gap-flagging driver (still not yet built) should get its own
-  new module rather than growing an existing one, consistent with how
-  rendering got its own (`render.py`) instead of being bolted onto
-  `assembly.py`.
+  resolves each requested person's `"found"` days across `journals/`
+  (optionally narrowed to a requested date range), and writes a real
+  extract `.docx` per person via `render.py`. New standalone concerns
+  (`person_spec.py` is the precedent) get their own module rather than
+  growing an existing one, consistent with how rendering got its own
+  (`render.py`) instead of being bolted onto `assembly.py`.
 - Code comments (and docstrings) are English — the actual document
   text/data (combat log source content, test names, runtime console
   output) stays Ukrainian since it's being extracted verbatim, not
