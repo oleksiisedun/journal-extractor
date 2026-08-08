@@ -32,6 +32,18 @@ LOCATION_LABEL_PATTERN = re.compile(
 )
 
 
+def _normalize_stripped_whitespace(text):
+    """Cleans up leftover spacing after a phrase has been cut out of
+    `text`: collapses runs of 2+ spaces/tabs, drops a space/tab now
+    stranded directly before punctuation, and trims trailing spaces/tabs
+    per line. Shared by strip_coordinates() and strip_location_labels()
+    since both need the exact same cleanup after their own removal."""
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"[ \t]+([,;.):])", r"\1", text)
+    text = re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
+    return text
+
+
 def extract_order_refs(text):
     """Extracts order/directive numbers of the form №БР42/Б3/7Р/ДСК from
     text. Whitespace after № is stripped before comparison so the same
@@ -63,10 +75,7 @@ def strip_coordinates(text):
     # without this) -- drop it so it doesn't collide with the punctuation
     # that now immediately follows.
     text = re.sub(r",\s*([.;])", r"\1", text)
-    text = re.sub(r"[ \t]{2,}", " ", text)
-    text = re.sub(r"[ \t]+([,;.):])", r"\1", text)
-    text = re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
-    return text
+    return _normalize_stripped_whitespace(text)
 
 
 def strip_location_labels(text):
@@ -77,11 +86,8 @@ def strip_location_labels(text):
     personnel extract — applied unconditionally, not just when it looks
     out of place."""
     text = LOCATION_LABEL_PATTERN.sub("", text)
-    text = re.sub(r"[ \t]{2,}", " ", text)
-    text = re.sub(r"[ \t]+([,;.):])", r"\1", text)
     text = re.sub(r"^[ \t]+", "", text, flags=re.MULTILINE)
-    text = re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
-    return text
+    return _normalize_stripped_whitespace(text)
 
 
 def assemble_fragment(paragraphs, pointer, date_value=None, time_boundaries=None):
