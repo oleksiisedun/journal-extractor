@@ -5,10 +5,12 @@ see CLAUDE.md's "Core architectural principle"). Days that resolve to
 "not_found" or "rejected" are skipped and printed as warnings, never
 silently dropped.
 
-Cross-day date-range merging ("з ... по ...") and requested-date-range
-filtering are NOT done here — every "found" day across all of journals/
-becomes its own stacked entry in the output. See CLAUDE.md's "Not yet
-built" list.
+A per-person requested date/date-range (optional trailing token on the
+CLI spec, see person_spec.parse_person_spec()) narrows which journals/
+days are searched and flags dates in that range with no matching file.
+Cross-day date-range merging ("з ... по ...") is NOT done here — every
+"found" day becomes its own stacked entry in the output. See CLAUDE.md's
+"Not yet built" list.
 
 Run via run.sh — see README.md for setup/run instructions.
 """
@@ -16,10 +18,11 @@ Run via run.sh — see README.md for setup/run instructions.
 import glob
 import os
 import sys
-from datetime import date
+from datetime import date, timedelta
 
 from config import COMBAT_LOG_DIR, OUTPUT_DIR, TEMPLATE_PATH
 from docx_parsing import extract_date_from_filename, load_paragraph_columns, load_paragraphs
+from person_spec import parse_person_spec
 from pipeline import resolve_day_fragment
 from prefilter import extract_surname
 from render import render_extract
@@ -28,9 +31,12 @@ from time_extraction import assign_time_boundaries
 
 def load_people(argv):
     """People to extract, from CLI args: either raw "rank SURNAME
-    Firstname Patronymic" strings passed directly, or -- if `argv` is a
-    single existing file path -- one such string per non-blank line of
-    that file.
+    Firstname Patronymic [DD.MM.YYYY[-DD.MM.YYYY]]" strings passed
+    directly, or -- if `argv` is a single existing file path -- one such
+    string per non-blank line of that file. The trailing date/date-range
+    is optional and, when present, restricts that person's search to
+    those day(s) instead of every file in journals/ -- see
+    person_spec.parse_person_spec().
     @param {list[str]} argv
     @returns {list[str]}
     """
@@ -83,10 +89,30 @@ def main():
         print("=" * 70)
         print("Особа:", person)
 
+        try:
+            full_name, date_from, date_to = parse_person_spec(person)
+        except ValueError as e:
+            print(f"  >>> Пропущено особу «{person}»: {e}")
+            continue
+
+        if date_from is None:
+            relevant_days = days
+        else:
+            relevant_days = [d for d in days if date_from <= d["date"] <= date_to]
+            covered_dates = {d["date"] for d in relevant_days}
+            missing_date = date_from
+            while missing_date <= date_to:
+                if missing_date not in covered_dates:
+                    print(
+                        f"    [{missing_date.isoformat()}] ЖУРНАЛ ВІДСУТНІЙ — "
+                        f"файл за цю дату не знайдено в {COMBAT_LOG_DIR}/"
+                    )
+                missing_date += timedelta(days=1)
+
         entries = []
-        for day in days:
+        for day in relevant_days:
             outcome = resolve_day_fragment(
-                day["paragraphs"], day["date"], day["time_boundaries"], person,
+                day["paragraphs"], day["date"], day["time_boundaries"], full_name,
             )
             if outcome["status"] == "found":
                 entries.append(outcome["result"])
@@ -97,10 +123,10 @@ def main():
             print("  >>> Жодного дня не знайдено для цієї особи — .docx не створено.")
             continue
 
-        surname = extract_surname(person)
+        surname = extract_surname(full_name)
         output_path = os.path.join(OUTPUT_DIR, f"Витяг_{surname}_{issue_date.isoformat()}.docx")
         render_extract(entries, issue_date, TEMPLATE_PATH, output_path)
-        print(f"  >>> Створено: {output_path}  ({len(entries)} з {len(days)} днів)")
+        print(f"  >>> Створено: {output_path}  ({len(entries)} з {len(relevant_days)} днів)")
 
 
 if __name__ == "__main__":
