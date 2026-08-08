@@ -84,12 +84,12 @@ derivable deterministically: `found` and `target_paragraph_index` come
 straight out of full-name narrowing, and `context_paragraph_indices` was
 already being force-overridden with `find_preceding_order_paragraph()` /
 `find_preceding_label_header()`'s output regardless of what the LLM
-answered (see bug log items 6, 7, 9). Separately, the project decided
-`redactions` is no longer needed at all — other people sharing the
-target's paragraph are now left in the text as-is. The bug log below is
-kept because it documents *why* the deterministic finder functions look
-the way they do — every entry describes a real failure that shaped
-`prefilter.py`, not a hypothetical one.
+answered (see [docs/bug-log.md](docs/bug-log.md) items 6, 7, 9).
+Separately, the project decided `redactions` is no longer needed at all —
+other people sharing the target's paragraph are now left in the text
+as-is. The bug log is kept because it documents *why* the deterministic
+finder functions look the way they do — every entry describes a real
+failure that shaped `prefilter.py`, not a hypothetical one.
 
 ## Pipeline (as currently implemented — entry points `run_demo.py` /
 `generate_extract.py`)
@@ -129,7 +129,8 @@ the way they do — every entry describes a real failure that shaped
    call and then get force-merged into the pointer regardless of what the
    LLM itself returned — found empirically that the LLM would still drop
    the label paragraph even when it was already visible in-window and a
-   prompt rule asked for it explicitly (see bug log). It's now simply the
+   prompt rule asked for it explicitly (see
+   [docs/bug-log.md](docs/bug-log.md)). It's now simply the
    entire answer, since nothing else was ever contributing a correct
    answer the LLM was actually needed for.
 5. **Deterministic assembly**: slice the indicated paragraphs and join
@@ -141,8 +142,9 @@ the way they do — every entry describes a real failure that shaped
    its grammatical variants — both applied per-paragraph, before the
    fragment is joined. Both run unconditionally, always, not just when the
    content looks out of place.
-7. **Guardrails** (all added after observing real failures — see bug log,
-   do not remove without understanding why they exist):
+7. **Guardrails** (all added after observing real failures — see
+   [docs/bug-log.md](docs/bug-log.md), do not remove without understanding
+   why they exist):
    - Target's surname must appear in the final assembled text.
    - Context paragraphs must not reference more than one distinct order
      number (regex `№\S+`).
@@ -256,196 +258,21 @@ more files rather than assuming they generalize forever.
 - A real accuracy benchmark: ~15-20 hand-verified (person, day, expected
   pointer) cases, tracked as a pass-rate, to catch regressions when
   `prefilter.py`'s finder functions change instead of discovering bugs one
-  production run at a time (which is how all the bugs below were actually
-  found).
+  production run at a time (which is how every entry in
+  [docs/bug-log.md](docs/bug-log.md) was actually found).
 
 Since the pipeline is now pure string/regex logic over an already-parsed
 paragraph list (no model inference), it runs in well under a second per
 person/day — no particular hardware requirements, and the LLM configuration
 notes that used to live here no longer apply.
 
-## Bug log (empirically found — read before touching `prefilter.py`)
+## Bug log
 
-Each of these was found by running real queries against the real sample
-combat log file, not by inspection. Items 1-5 were found back when this
-pipeline used a local LLM to produce the pointer, before it was replaced
-by pure deterministic logic (see "Core architectural principle" above) —
-they're kept because they're *why* the schema is shaped the way it is
-(non-contiguous `context_paragraph_indices` + single `target_paragraph_index`,
-no `redactions`). Items 6-9 are about `prefilter.py`'s finder functions
-directly and remain fully live regression cases. Item 10 is about
-`assembly.py`'s `strip_coordinates()` instead. If you touch
-`build_pointer()` or its finder functions, or the coordinate/label
-stripping in `assembly.py`, re-run against these exact cases before
-considering it done.
-
-1. **Model redacted the target's own name.** Given a person who was the
-   *only* name in their selected range, the model still put the target's
-   own line into `redactions` (confusing "who am I looking for" with "who
-   do I remove"). Fixed by: explicit prompt rule + the surname-presence
-   guardrail (pipeline step 7 above), which fails loudly instead of
-   silently producing an empty fragment. The guardrail is what survived —
-   redactions themselves are gone now (see "Core architectural principle").
-2. **Model tried to hold one giant contiguous range over a list of many
-   people and enumerate everyone else for redaction — and got it wrong**
-   (missed several names, referenced one paragraph outside its own chosen
-   range, crashed the fail-closed check). Root cause: asking a model to
-   correctly enumerate N-1 items in a list without missing any doesn't
-   scale. Fixed by changing the schema itself from a single contiguous
-   `fragment_paragraph_range` to non-contiguous
-   `context_paragraph_indices` + single `target_paragraph_index` — the
-   model no longer needs to track or exclude anyone, it just never selects
-   their paragraph.
-3. **Model merged context from two different, unrelated orders** (two
-   namesakes, each governed by a different БР number) into one answer.
-   This one is dangerous because it passes every text-fidelity check —
-   every character was verbatim, the target's name was present — but the
-   *content* was wrong (a person cited under the wrong legal order). Fixed
-   two ways: (a) root cause — the full-name narrowing step (pipeline step
-   3) now usually prevents the LLM from ever seeing two unrelated windows
-   at once; (b) defense in depth — the order-number-conflict guardrail
-   (pipeline step 7) catches it if narrowing didn't apply.
-4. **Prompt bloat caused a 300s request timeout.** Adding few-shot
-   examples to fix the above bugs grew the system prompt to ~6200 chars,
-   which fights directly against the prefill-bound CPU bottleneck. Fixed
-   by trimming redundant example text and relying on full-name narrowing
-   to keep the typical candidate window small (~10 paragraphs) rather than
-   trying to cover every case with more prompt text.
-5. **Model redacted a neighboring paragraph it never selected.** Real case
-   (see `local_test_data.py`, shape mirrors system-prompt Example 1): target
-   on its own paragraph (e.g. ОРЛЕНКО at paragraph 38), immediately followed
-   by a different, unselected person's paragraph (ПЕТРЕНКО at paragraph 39).
-   `target_paragraph_index` and `context_paragraph_indices` were both
-   correct, but `redactions` still contained the neighbor's text — even
-   though paragraph 39 was in neither list, directly contradicting both the
-   explicit prompt rule and Example 1's "no redaction needed" case.
-   Reproduced deterministically (3/3 runs, temperature 0), and confirmed via
-   A/B testing against both the real-name and fictional-name versions of the
-   system prompt — identical failure either way, so this was not a
-   prompt-wording regression. Fixed (tentatively) by shrinking the system
-   prompt: dropped Example 4 (pure repetition of a rule already stated
-   elsewhere, no new example data) and the duplicated NEVER/CRITICAL phrasing
-   in the instructions, and trimmed the now-redundant `RESPONSE_SCHEMA`
-   descriptions — 5073 → 3590 chars (-29%). Re-running the exact same real
-   case afterward now returns the correct pointer with no hallucinated
-   redaction. This whole failure class is now moot: `redactions` was
-   removed from the schema entirely once the project decided other
-   people's text sharing the target's paragraph doesn't need to be
-   redacted (see "Core architectural principle" above).
-6. **Model picked a LATER, unrelated order paragraph as context because the
-   TRUE governing order was outside the ±8 window entirely.** Real case
-   (`ЖБД_12-04-2026.docx`, КРАВЧЕНКО Євгеній Геннадійович): the target sits
-   at paragraph 108, inside a long composition list of ~15 call-sign groups
-   (`ПВ «...»`, `СЗМ «...»`) all governed by one order header 43 paragraphs
-   earlier (65, `№БН1/Б3/ДСК`). The ±8 window (100-109) never contained
-   paragraph 65 — but it did contain paragraph 109, an unrelated order that
-   actually starts the *next* section right after the target. The LLM had
-   no way to pick correctly; it wasn't shown the right answer. This is not
-   the same failure shape as item 3 (mixing two orders it *could* see) —
-   here the correct paragraph was never in the candidate set at all, so no
-   amount of prompt wording could have fixed it. A second, narrower gap
-   surfaced once the window fix was in: paragraph 107 (`СЗМ «ФЛЕШ»`, the
-   immediate call-sign sub-header right above the target) was already
-   inside the original window, and the model *still* didn't select it as
-   context — even after adding an explicit prompt rule about
-   call-sign/position labels lacking trailing punctuation. Confirmed at
-   temperature 0 across reruns: prompting alone did not change the output.
-   Fixed both, deterministically, in `prefilter.py` —
-   `find_preceding_order_paragraph()` and `find_preceding_label_header()`
-   walk backward from the full-name anchor paragraph for (a) the nearest
-   preceding `ORDER_REF_PATTERN` match regardless of distance, and (b) an
-   immediately preceding line containing `«»` guillemets or ending in `:`
-   (verified: never present in a bare personnel line across all three
-   sample files) — both merged into `context_paragraph_indices`, at the
-   time in `run_demo.py` after the LLM call (overriding whatever the LLM
-   itself returned), now directly inside `build_pointer()` since there's
-   no LLM answer left to override. See "Pipeline" step 4 above.
-7. **`ORDER_REF_PATTERN` false-matched plain "№N" numbering as an order
-   reference, breaking item 6's fix.** Real case (`ЖБД_12-04-2026.docx`,
-   ХОМЕНКО Дмитро Юрійович): target at paragraph 125, inside "Група №2"
-   (a numbered sub-group, not a call-sign), itself inside a list governed
-   by an order at paragraph 112 — 13 paragraphs earlier, outside the ±8
-   window, same shape as item 6. But `find_preceding_order_paragraph()`
-   walked backward and immediately matched paragraph 124 ("Група №2 за
-   координатами (...)") against the old `№\s?\S+` pattern, because "№2" on
-   its own satisfies it — stopping the search one paragraph too early and
-   never reaching the real order at 112. Every real order reference in all
-   three sample files contains a `/` (e.g. `№БР59/Б3/РВП/ДСК`); plain "№N"
-   numbering (group labels, the document's own header number) never does.
-   Fixed by tightening `ORDER_REF_PATTERN` (`patterns.py`) to require a
-   `/` in the matched token via a lookahead — this also fixes a latent
-   false-positive risk in `assembly.py`'s multi-order guardrail, which
-   used the same pattern. A second, narrower gap: paragraph 124 itself
-   (the "Група №2" label) has neither of `find_preceding_label_header()`'s
-   two signals (no `«»`, no trailing `:`), so it wasn't forced in either,
-   and the LLM dropped it from context on its own — same shape as the
-   `СЗМ «ФЛЕШ»` gap in item 6. Verified this "group label with neither
-   signal" shape recurs across two different sample files (`Група №N`,
-   lowercase `група N`, `Інженерно-саперна група №N`), so it's a real
-   pattern, not a one-off. Fixed by adding a fallback signal to
-   `find_preceding_label_header()`: a bare (non-quoted) run of 3+ uppercase
-   Cyrillic letters is the shape every real surname has, so a preceding
-   line WITHOUT one outside any `«»` quoting is safe to treat as a label
-   rather than another person's own paragraph — worst case if this signal
-   is ever too loose is a missed force-include (same as before this
-   function existed), never a wrongly forced-in name.
-8. **A stripped coordinate parenthetical left its introducing phrase
-   dangling.** Same ХОМЕНКО case: `strip_coordinates()` correctly dropped
-   `(37U CR 15093 59641)` and the now-empty parens, but left "Група №2 за
-   координатами" — "за координатами" (by/at coordinates) is meaningless
-   once the coordinates themselves are gone. Verified this exact phrase
-   only ever appears immediately before a coordinate parenthetical (both
-   occurrences in `ЖБД_12-04-2026.docx`), so stripping it unconditionally
-   is safe — same rationale as the digits themselves (CLAUDE.md rule 4:
-   tactical data with no place in a personnel extract). Fixed by adding
-   `COORDINATE_LABEL_PATTERN` to `strip_coordinates()` (`assembly.py`),
-   applied after the parenthetical cleanup, not as a separate rule.
-9. **Label header separated from the target by another person's own
-   paragraph.** Real case (`ЖБД_12-04-2026.docx`, ЧЕРЕДНІЧЕНКО Олександр
-   Іванович): target at paragraph 168, but the governing label — "Пост
-   повітряного прикриття № 2 (37U CR 15021 60370):" at paragraph 166 — is
-   two paragraphs back, not one, because paragraph 167 is a DIFFERENT
-   person (ОГУЛА) listed first under the same label. The original
-   `find_immediate_label_header()` only ever checked the single
-   immediately preceding paragraph, so it never found 166 at all — item 6
-   and 7's fix worked when the target was the FIRST person under their
-   label, not otherwise. Fixed by generalizing it into
-   `find_preceding_label_header()`: it now walks backward from the target,
-   skipping over any paragraph that looks like another person's own (has a
-   bare surname-like token), down to `find_preceding_order_paragraph()`'s
-   result as a lower bound — mirroring context_paragraph_indices' own
-   documented semantics ("Not necessarily contiguous with the target --
-   there can be a long run of other people's own paragraphs in between").
-   The weaker no-surname fallback signal (item 6) is intentionally NOT
-   extended across this walk — it only fires when directly adjacent to the
-   target, to avoid guessing on some distant, ambiguous line; only the
-   strong guillemet/colon signal is trusted across the skip.
-10. **A trailing colon plus its now-dangling comma survived coordinate
-    stripping and collided into stray punctuation.** Real case: `"...
-    Харківської області, за координатами: (37U CR 1234 5678; 37U CR 1234
-    5678; 37U CR 1234 5678; 37U CR 1234 5678)."` stripped down to `"...
-    Харківської області,:."` instead of `"... Харківської області."`. Two
-    compounding gaps: (a) `COORDINATE_LABEL_PATTERN` only matched `"за
-    координат\w*"`, not the `":"` some real occurrences carry right after
-    (item 8's fix case had no colon, so it was never exercised), leaving a
-    bare `":"` behind once the phrase itself was removed; (b) the comma
-    that used to separate the preceding clause from "за координатами" had
-    nothing left to introduce once both the phrase and its parenthetical
-    were gone, but nothing removed it — it collided with the trailing `"."`
-    via the existing whitespace-before-punctuation collapse regex,
-    producing `",:."` instead of a clean `"."`. Fixed by (a) extending
-    `COORDINATE_LABEL_PATTERN` to swallow an optional trailing `:` plus
-    whitespace, and (b) adding a rule to `strip_coordinates()` that drops a
-    comma immediately preceding a now-adjacent `.`/`;` (`r",\s*([.;])"` ->
-    `r"\1"`) — both still scoped to artifacts of coordinate stripping
-    specifically (CLAUDE.md rule 3), not a general punctuation rule.
-
-**Pattern across items 1-10**: the fixes that actually held up were the ones
-that removed the need for a model to get something right, not the ones
-that just asked it more firmly — and that pattern is *why* an LLM ended up
-fully removable: every one of its jobs eventually got moved into
-deterministic code. Prefer restructuring the schema/pipeline over adding
-prompting/heuristic guesswork when a bug recurs.
+Every empirically-found failure that shaped `prefilter.py`'s finder
+functions and `assembly.py`'s stripping logic — 10 entries so far — lives
+in [docs/bug-log.md](docs/bug-log.md), not here. Read it before touching
+`build_pointer()`, its finder functions, or coordinate/label stripping;
+each entry is a real regression case to re-check, not a hypothetical one.
 
 ## Known test data
 
@@ -501,4 +328,5 @@ the filename-separator variants (see `journals/`, gitignored):
   translated.
 - Every new failure mode found through testing should get: (1) a guardrail
   that fails loudly (never silently produces a degraded result), and (2)
-  an entry in the bug log above with the real example that triggered it.
+  an entry in [docs/bug-log.md](docs/bug-log.md) with the real example
+  that triggered it.
