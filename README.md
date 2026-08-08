@@ -111,8 +111,13 @@ Not yet built: a tracked accuracy benchmark. See `CLAUDE.md` for details.
 **1. Install Python dependencies**
 
 ```bash
-pip install python-docx --break-system-packages
+pip install python-docx pillow --break-system-packages
 ```
+
+(Pillow is used only to measure real glyph widths from the bundled
+`assets/fonts/Carlito-Regular.ttf`, so `render.py` can compute how many
+visual lines a paragraph wraps to and keep the `{дата}` column aligned with
+`{витяг}` — see `text_wrap.py`.)
 
 **2. Provide source files**
 
