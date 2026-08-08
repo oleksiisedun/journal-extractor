@@ -29,8 +29,9 @@ def load_paragraph_columns(docx_path):
     extraction heuristic (see assign_time_boundaries()). Walks the same
     table/row/cell structure in the same order, so global indices for
     column-1 (content) paragraphs match load_paragraphs()'s numbering
-    exactly and can be cross-referenced against an LLM pointer's
-    target_paragraph_index. Also keeps, per row, each paragraph's RAW
+    exactly and can be cross-referenced against a resolved pointer's
+    target_paragraph_index (see build_pointer() in prefilter.py). Also
+    keeps, per row, each paragraph's RAW
     position within its own cell (including blank paragraphs) for both
     columns -- the time column visually lines up with wrapped content text
     via blank filler paragraphs, and that raw position is what the
