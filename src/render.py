@@ -15,6 +15,18 @@ import os
 import docx
 from docx.oxml.ns import qn
 
+from text_wrap import estimate_wrapped_line_count
+
+TWIPS_PER_POINT = 20
+
+# OOXML's built-in default table cell margin (start/end), used only when
+# neither the cell's own tcMar nor the table's tblCellMar specify one.
+DEFAULT_CELL_MARGIN_TWIPS = 108
+
+# Word's built-in default run font size, used only if templates/1.docx's
+# {витяг} run, paragraph mark, and style chain all somehow specify none.
+DEFAULT_FONT_SIZE_PT = 10.0
+
 
 def _replace_run_placeholder(document, placeholder, value):
     """Substring-replaces `placeholder` inside whichever run of a top-level
@@ -29,19 +41,72 @@ def _replace_run_placeholder(document, placeholder, value):
     raise ValueError(f"Placeholder {placeholder!r} not found in template")
 
 
-def _find_placeholder_paragraph(document, placeholder):
-    """Finds the table-cell paragraph whose entire text is exactly
+def _find_placeholder_cell_and_paragraph(document, placeholder):
+    """Finds the table cell and paragraph whose entire text is exactly
     `placeholder` (e.g. '{дата}', '{витяг}') — in the real template each
     one is the sole content of its own paragraph, distinct from
     _replace_run_placeholder's case of a placeholder sharing a run with
-    other text."""
+    other text. Returns the cell too (not just the paragraph) so callers
+    can inspect/adjust the paragraphs preceding it, e.g.
+    _equalize_leading_blanks()."""
     for table in document.tables:
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
                     if paragraph.text == placeholder:
-                        return paragraph
+                        return cell, paragraph
     raise ValueError(f"Placeholder {placeholder!r} not found in template")
+
+
+def _placeholder_prefix_length(cell, placeholder_paragraph):
+    """Counts how many paragraphs precede `placeholder_paragraph` at the
+    start of `cell` — its static, pre-existing template content (e.g. the
+    {витяг} cell's fixed "V. Хід бойових дій" header + blank line).
+    Compares the stable underlying `_p` XML element rather than the
+    `Paragraph` wrapper, since `cell.paragraphs` builds a fresh wrapper
+    list on every access."""
+    target = placeholder_paragraph._p
+    count = 0
+    for paragraph in cell.paragraphs:
+        if paragraph._p is target:
+            break
+        count += 1
+    return count
+
+
+def _remove_leading_blanks(cell, count):
+    """Deletes up to `count` blank paragraphs from the start of `cell`,
+    stopping early if a non-blank paragraph is reached first — so real
+    static template content (e.g. the {витяг} cell's "V. Хід бойових дій"
+    header) is never deleted, even if `count` asks for more than the
+    cell's actual blank-only prefix."""
+    removed = 0
+    for paragraph in list(cell.paragraphs):
+        if removed >= count or paragraph.text != "":
+            break
+        p_element = paragraph._p
+        p_element.getparent().remove(p_element)
+        removed += 1
+
+
+def _equalize_leading_blanks(date_cell, date_paragraph, fragment_cell, fragment_paragraph):
+    """The real template has a different number of static leading
+    paragraphs before {дата} (3 blanks) than before {витяг} (1 "V. Хід
+    бойових дій" header line + 1 blank) — 3 vs 2. Even after
+    _format_date_lines() pads each entry's date block to match its text
+    block's line count, this constant prefix mismatch alone leaves the two
+    columns' per-entry content starting at different paragraph offsets, so
+    dates still render a fixed number of lines below their matching text.
+    Trims whichever cell has the longer prefix down to the other's length
+    (only ever deleting blank paragraphs — see _remove_leading_blanks — so
+    real static text is never touched), so _expand_multiline_placeholder()
+    inserts both cells' entries starting at the same offset."""
+    date_prefix = _placeholder_prefix_length(date_cell, date_paragraph)
+    fragment_prefix = _placeholder_prefix_length(fragment_cell, fragment_paragraph)
+    if date_prefix > fragment_prefix:
+        _remove_leading_blanks(date_cell, date_prefix - fragment_prefix)
+    elif fragment_prefix > date_prefix:
+        _remove_leading_blanks(fragment_cell, fragment_prefix - date_prefix)
 
 
 def _expand_multiline_placeholder(paragraph, lines):
@@ -84,26 +149,138 @@ def _format_time_line(entry):
     return time_value
 
 
-def _format_date_lines(entries):
+def _entry_fragment_lines(entry):
+    """The {витяг} cell's paragraph lines for one entry — its already-
+    assembled verbatim text split on the paragraph breaks assembly.py
+    joined with "\\n\\n"."""
+    return entry["text"].split("\n")
+
+
+def _cell_margin_twips(cell, side):
+    """`cell`'s horizontal margin (side is "start" or "end") in twips: the
+    cell's own tcMar override if present, else the enclosing table's
+    default tblCellMar, else OOXML's built-in default
+    (DEFAULT_CELL_MARGIN_TWIPS)."""
+    tc = cell._tc
+    tcPr = tc.tcPr
+    if tcPr is not None:
+        tcMar = tcPr.find(qn("w:tcMar"))
+        if tcMar is not None:
+            side_element = tcMar.find(qn(f"w:{side}"))
+            if side_element is not None:
+                return int(side_element.get(qn("w:w")))
+    tbl = tc.getparent().getparent()  # w:tc -> w:tr -> w:tbl
+    tblPr = tbl.find(qn("w:tblPr"))
+    if tblPr is not None:
+        tblCellMar = tblPr.find(qn("w:tblCellMar"))
+        if tblCellMar is not None:
+            side_element = tblCellMar.find(qn(f"w:{side}"))
+            if side_element is not None:
+                return int(side_element.get(qn("w:w")))
+    return DEFAULT_CELL_MARGIN_TWIPS
+
+
+def _paragraph_first_line_indent_twips(paragraph):
+    """`paragraph`'s first-line indent in twips (0 if unset) — the real
+    template applies one to every {витяг} paragraph (a "red line" indent
+    convention), which shrinks the usable width of a paragraph's first
+    wrapped line relative to the lines after it."""
+    pPr = paragraph._p.pPr
+    if pPr is not None:
+        ind = pPr.find(qn("w:ind"))
+        if ind is not None:
+            first_line = ind.get(qn("w:firstLine"))
+            if first_line is not None:
+                return int(first_line)
+    return 0
+
+
+def _run_font_size_pt(paragraph):
+    """Font size in points used by `paragraph`'s text — its first run's
+    explicit size if set (the case for the {витяг} placeholder, whose
+    formatting _expand_multiline_placeholder() clones onto every inserted
+    paragraph), else the paragraph mark's own run properties, else
+    DEFAULT_FONT_SIZE_PT."""
+    for run in paragraph.runs:
+        if run.font.size is not None:
+            return run.font.size.pt
+    pPr = paragraph._p.pPr
+    if pPr is not None:
+        rPr = pPr.find(qn("w:rPr"))
+        if rPr is not None:
+            sz = rPr.find(qn("w:sz"))
+            if sz is not None:
+                return int(sz.get(qn("w:val"))) / 2
+    return DEFAULT_FONT_SIZE_PT
+
+
+def _fragment_line_widths_pt(fragment_cell, fragment_paragraph):
+    """Returns (first_line_width_pt, continuation_width_pt) — the {витяг}
+    cell's real usable text width for a paragraph's first line (reduced by
+    its first-line indent) and for every line after, computed from
+    templates/1.docx's actual cell width, margins, and indent rather than
+    assumed."""
+    usable_twips = (
+        fragment_cell.width.twips
+        - _cell_margin_twips(fragment_cell, "start")
+        - _cell_margin_twips(fragment_cell, "end")
+    )
+    first_line_indent_twips = _paragraph_first_line_indent_twips(fragment_paragraph)
+    first_line_width_pt = (usable_twips - first_line_indent_twips) / TWIPS_PER_POINT
+    continuation_width_pt = usable_twips / TWIPS_PER_POINT
+    return first_line_width_pt, continuation_width_pt
+
+
+def _entry_visual_line_count(entry, font_size_pt, first_line_width_pt, continuation_width_pt):
+    """Total visual lines the {витяг} cell will render for one entry — the
+    sum of text_wrap.estimate_wrapped_line_count() over each of its
+    paragraphs (_entry_fragment_lines), measured against the cell's real
+    font size and usable width."""
+    return sum(
+        estimate_wrapped_line_count(line, font_size_pt, first_line_width_pt, continuation_width_pt)
+        for line in _entry_fragment_lines(entry)
+    )
+
+
+def _format_date_lines(entries, font_size_pt, first_line_width_pt, continuation_width_pt):
     """Builds the {дата} cell's lines: for a single-day entry (date_from ==
     date_to), the date plus its time line; for a merged multi-day range, one
     "з ... по ..." line and no time line — merge.merge_consecutive_entries()
     already dropped the time for ranges since no single time correctly
-    represents the whole span. Blank-line separated between entries (none
-    trailing)."""
+    represents the whole span. Each entry's date block is then padded with
+    blank lines up to that same entry's *measured visual line count* in the
+    {витяг} cell (_entry_visual_line_count) — not just its raw paragraph
+    count, since a paragraph that wraps to several visual lines in Word
+    still counts as one paragraph — so the two cells' entries start at
+    matching visual offsets and the date lines up with the top of its own
+    text block instead of landing early, inside a wrapped paragraph from an
+    earlier entry. The last entry is never padded — that padding only
+    exists to push a *later* entry's date down, and with no entry after it
+    padding would just add trailing blank paragraphs that make the {дата}
+    cell (and so the whole row) taller than the content needs, leaving a
+    gap at the bottom of the table. Blank-line separated between entries
+    (none trailing)."""
     lines = []
     for i, entry in enumerate(entries):
         if i > 0:
             lines.append("")
+        entry_lines = []
         date_from = entry["date_from"].strftime("%d.%m.%Y")
         if entry["date_from"] == entry["date_to"]:
-            lines.append(date_from)
+            entry_lines.append(date_from)
             time_line = _format_time_line(entry)
             if time_line is not None:
-                lines.append(time_line)
+                entry_lines.append(time_line)
         else:
             date_to = entry["date_to"].strftime("%d.%m.%Y")
-            lines.append(f"з {date_from} по {date_to}")
+            entry_lines.append(f"з {date_from} по {date_to}")
+        if i < len(entries) - 1:
+            visual_line_count = _entry_visual_line_count(
+                entry, font_size_pt, first_line_width_pt, continuation_width_pt
+            )
+            while len(entry_lines) < visual_line_count:
+                entry_lines.append("")
+        lines.extend(entry_lines)
     return lines
 
 
@@ -115,7 +292,7 @@ def _format_fragment_lines(entries):
     for i, entry in enumerate(entries):
         if i > 0:
             lines.append("")
-        lines.extend(entry["text"].split("\n"))
+        lines.extend(_entry_fragment_lines(entry))
     return lines
 
 
@@ -135,9 +312,15 @@ def render_extract(entries, issue_date, template_path, output_path):
 
     _replace_run_placeholder(document, "{дата витягу}", issue_date.strftime("%d.%m.%Y"))
 
-    date_paragraph = _find_placeholder_paragraph(document, "{дата}")
-    fragment_paragraph = _find_placeholder_paragraph(document, "{витяг}")
-    _expand_multiline_placeholder(date_paragraph, _format_date_lines(entries))
+    date_cell, date_paragraph = _find_placeholder_cell_and_paragraph(document, "{дата}")
+    fragment_cell, fragment_paragraph = _find_placeholder_cell_and_paragraph(document, "{витяг}")
+    _equalize_leading_blanks(date_cell, date_paragraph, fragment_cell, fragment_paragraph)
+
+    font_size_pt = _run_font_size_pt(fragment_paragraph)
+    first_line_width_pt, continuation_width_pt = _fragment_line_widths_pt(fragment_cell, fragment_paragraph)
+    date_lines = _format_date_lines(entries, font_size_pt, first_line_width_pt, continuation_width_pt)
+
+    _expand_multiline_placeholder(date_paragraph, date_lines)
     _expand_multiline_placeholder(fragment_paragraph, _format_fragment_lines(entries))
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
