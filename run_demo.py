@@ -1,5 +1,6 @@
 """
-Mini demo of a local LLM for generating combat log extracts.
+Mini demo of the fully deterministic pipeline for generating combat log
+extracts (no LLM — see CLAUDE.md's "Core architectural principle").
 
 See README.md for setup/run instructions and CLAUDE.md for full pipeline
 and rule documentation.
@@ -10,15 +11,12 @@ import os
 
 from config import COMBAT_LOG_DIR, FULL_NAME_AMBIGUITY_STRATEGY
 from docx_parsing import extract_date_from_filename, load_paragraph_columns, load_paragraphs
-from llm_client import ask_llm
 from prefilter import (
+    build_pointer,
     extract_full_name,
     extract_surname,
     filter_windows_by_full_name,
     find_candidate_windows,
-    find_full_name_paragraph,
-    find_preceding_label_header,
-    find_preceding_order_paragraph,
     select_ambiguous_window,
 )
 from time_extraction import assign_time_boundaries
@@ -72,22 +70,20 @@ def main():
             windows = find_candidate_windows(all_paragraphs, surname)
 
             if not windows:
-                # the surname isn't in this day's text at all — no need to
-                # call the LLM, and this is faster and more reliable than
-                # asking the model "does this person exist"
-                print(">>> Прізвище відсутнє в тексті дня — LLM не викликаємо. found=false")
+                # the surname isn't in this day's text at all
+                print(">>> Прізвище відсутнє в тексті дня. found=false")
                 continue
 
             # narrow by FULL name (not surname alone) - if this unambiguously
-            # narrows to a single window, the LLM never sees other namesakes
-            # or other orders at all.
+            # narrows to a single window, that window can't mix in another
+            # namesake or another, unrelated order.
             full_name = extract_full_name(person)
             narrowed = filter_windows_by_full_name(all_paragraphs, windows, full_name)
             if len(narrowed) == 0:
                 # full name isn't verbatim anywhere in this day's text, even
-                # though the surname is -- fail closed rather than handing
-                # the LLM weaker (surname-only) context to guess from
-                print(">>> ПОВНЕ ПІБ не знайдено дослівно в тексті дня — LLM не викликаємо. found=false")
+                # though the surname is -- fail closed rather than guess
+                # from weaker (surname-only) context
+                print(">>> ПОВНЕ ПІБ не знайдено дослівно в тексті дня. found=false")
                 continue
             elif len(narrowed) == 1:
                 windows_to_use = narrowed
@@ -97,56 +93,14 @@ def main():
                 note = (f"увага: повне ПІБ дослівно зустрічається у {len(narrowed)} різних місцях - "
                         f"справжня неоднозначність, беремо {FULL_NAME_AMBIGUITY_STRATEGY} входження")
 
-            candidate_paragraphs = []
-            seen = set()
-            for lo, hi in windows_to_use:
-                for i in range(lo, hi + 1):
-                    if i not in seen:
-                        seen.add(i)
-                        candidate_paragraphs.append((i, dict(all_paragraphs)[i]))
+            print(f"    ({note})")
 
-            # The paragraphs that actually govern this person can sit
-            # outside the fixed ±window, or be silently skipped by the LLM
-            # even when they ARE in the window -- found empirically (see
-            # CLAUDE.md bug log): a long composition list of many call-sign
-            # groups can be governed by one order dozens of paragraphs
-            # earlier, and even with that order in view, the model still
-            # dropped the immediate call-sign sub-header right above the
-            # target. Both are deterministically findable (no LLM needed),
-            # so rather than trust the model to select them, force them into
-            # the final context below regardless of what the LLM returns --
-            # this is what actually held up in testing; the prompt
-            # clarification alone did not.
-            forced_context = set()
-            anchor = find_full_name_paragraph(all_paragraphs, windows_to_use[0], full_name)
-            if anchor is not None:
-                order_idx = find_preceding_order_paragraph(all_paragraphs, anchor)
-                if order_idx is not None:
-                    forced_context.add(order_idx)
-                    if order_idx not in seen:
-                        seen.add(order_idx)
-                        candidate_paragraphs.append((order_idx, dict(all_paragraphs)[order_idx]))
-                        note += f"; додано керівний параграф-наказ [{order_idx}] поза вікном"
-
-                label_idx = find_preceding_label_header(all_paragraphs, anchor, order_idx or 0)
-                if label_idx is not None:
-                    forced_context.add(label_idx)
-                    if label_idx not in seen:
-                        seen.add(label_idx)
-                        candidate_paragraphs.append((label_idx, dict(all_paragraphs)[label_idx]))
-                        note += f"; додано заголовок-мітку [{label_idx}]"
-            candidate_paragraphs.sort(key=lambda p: p[0])
-
-            print(f"    (префільтр: {len(candidate_paragraphs)} з {len(all_paragraphs)} параграфів, "
-                  f"{note})")
-
-            pointer = ask_llm(candidate_paragraphs, person)
+            # target_paragraph_index is find_full_name_paragraph()'s result;
+            # context_paragraph_indices is the governing order + label
+            # header, walked back from there -- see build_pointer().
+            pointer = build_pointer(all_paragraphs, windows_to_use[0], full_name)
             pointer["_surname_check"] = surname  # for the sanity check in assemble_fragment
-            if pointer.get("found") and forced_context - set(pointer["context_paragraph_indices"]):
-                pointer["context_paragraph_indices"] = sorted(
-                    set(pointer["context_paragraph_indices"]) | forced_context
-                )
-            print("Відповідь LLM (pointer):", pointer)
+            print("Вказівник (pointer):", pointer)
 
             if not pointer.get("found"):
                 print(">>> Не знайдено в цьому дні (перевір вручну — гепи не пропускаємо мовчки)")

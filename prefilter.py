@@ -1,6 +1,9 @@
-"""Deterministic surname/full-name candidate narrowing (no LLM) — this is
-what keeps the LLM from ever seeing two unrelated namesake windows at once,
-and lets it be skipped entirely when a person isn't in a given day at all."""
+"""Deterministic surname/full-name candidate narrowing and pointer
+resolution (no LLM anywhere in this pipeline) — narrowing keeps namesake
+windows governed by two different, unrelated orders from ever being mixed
+together, and build_pointer() resolves the final answer: which paragraph
+holds the target and which paragraphs are needed for legal/section
+context."""
 
 import re
 
@@ -150,10 +153,10 @@ def find_preceding_label_header(paragraphs, anchor_index, lower_bound=0):
 
     This complements find_preceding_order_paragraph(), which can land far
     back and miss an immediate sub-header the target sits directly under
-    (found empirically: the LLM was given a label already in-window and
-    still didn't select it as context even after a prompt clarification --
-    see CLAUDE.md bug log). Returns None if nothing matches before
-    `lower_bound`."""
+    (found empirically: an earlier LLM-based version of this pipeline was
+    given a label already in-window and still didn't select it as context
+    even after a prompt clarification -- see CLAUDE.md bug log). Returns
+    None if nothing matches before `lower_bound`."""
     para_dict = dict(paragraphs)
     for i in range(anchor_index - 1, lower_bound, -1):
         text = para_dict[i].strip()
@@ -168,3 +171,27 @@ def find_preceding_label_header(paragraphs, anchor_index, lower_bound=0):
             return i  # weak (no-surname) fallback only trusted when directly adjacent
         return None  # ambiguous line further back with neither strong signal nor a name -- stop rather than guess
     return None
+
+
+def build_pointer(paragraphs, window, full_name):
+    """Deterministically builds the pointer dict describing where a
+    person's entry sits -- replaces the local LLM call this project used
+    to make. Full-name narrowing (filter_windows_by_full_name()) has
+    already confirmed `full_name` occurs verbatim somewhere in `window` by
+    the time this is called, so target_paragraph_index is simply
+    find_full_name_paragraph()'s result, and context_paragraph_indices is
+    exactly the governing order + label header found by
+    find_preceding_order_paragraph() / find_preceding_label_header(). No
+    redactions: a person sharing the target's paragraph is left in the
+    text as-is (project decision -- see CLAUDE.md)."""
+    anchor = find_full_name_paragraph(paragraphs, window, full_name)
+    if anchor is None:
+        # full_name matched in the window's joined text but not within a
+        # single paragraph (e.g. it spans a paragraph break) -- never
+        # observed in real files; fail closed rather than guess.
+        return {"found": False, "context_paragraph_indices": [], "target_paragraph_index": -1}
+
+    order_idx = find_preceding_order_paragraph(paragraphs, anchor)
+    label_idx = find_preceding_label_header(paragraphs, anchor, order_idx or 0)
+    context = sorted({i for i in (order_idx, label_idx) if i is not None})
+    return {"found": True, "context_paragraph_indices": context, "target_paragraph_index": anchor}

@@ -8,7 +8,11 @@ serviceman over a date range, sourced from per-day `.docx` files.
 
 Source documents carry a restricted (internal-use) classification and
 contain real personnel names, ranks, unit positions, and order numbers.
-**This must stay fully local/offline — no cloud LLM calls, no telemetry.**
+**This must stay fully local/offline — no cloud LLM calls, no telemetry, no
+LLM of any kind.** The pipeline is 100% deterministic string/regex logic
+(see "Core architectural principle" below); an earlier version used a
+local LLM and it was removed once every field it produced turned out to be
+already derivable deterministically.
 
 ## The one rule everything else follows
 
@@ -20,42 +24,47 @@ mode, ever.
 The only edits ever allowed:
 1. Selecting *which* paragraphs to include (a person's mention doesn't have
    to be contiguous with its legal-basis order reference).
-2. Removing *other people's* text when they share the exact same paragraph
-   as the target person (never the target's own text).
-3. One mechanical punctuation fix: a trailing `;` → `.` if it ends up as the
+2. One mechanical punctuation fix: a trailing `;` → `.` if it ends up as the
    very last character after assembly (because the source item wasn't last
    in its original list).
-4. Stripping MGRS-style grid coordinates (e.g. `37U CR 1234 5678`) wherever
+3. Stripping MGRS-style grid coordinates (e.g. `37U CR 1234 5678`) wherever
    they appear, including cleanup of any parenthetical group that becomes
    empty once its coordinates are removed, and the introducing phrase "за
    координатами" (by/at coordinates) when it's left dangling with nothing
    left to refer to. Coordinates are tactical data with no place in a
    personnel extract — this is a blanket rule, not conditional on context.
    See `strip_coordinates()`.
-5. Stripping the phrase "район зосередження" (concentration area) and its
+4. Stripping the phrase "район зосередження" (concentration area) and its
    grammatical variants (районі, району, зосередженню, ...), including an
    immediately preceding preposition (у/в/на) so nothing dangles. Same
    rationale as coordinates — tactical location data, blanket rule. See
    `strip_location_labels()`.
 
-Nothing else. If you're tempted to have the LLM "clean up" or "reword"
-anything, stop — that's the wrong direction for this project.
+If another person shares the exact same paragraph/sentence as the target,
+their text is left in place, untouched — no redaction of other people's
+names is performed (project decision; an earlier version of this pipeline
+did redact them, see "Core architectural principle" below).
 
-## Core architectural principle: the LLM never writes the final text
+Nothing else. If you're ever tempted to "clean up" or "reword" anything,
+stop — that's the wrong direction for this project.
 
-The LLM's only job is to return **pointers** into a numbered paragraph list:
-which paragraphs are needed for context, which single paragraph contains the
-target person, and (rarely) which substrings of *other* people to strip out
-of that paragraph. All actual text assembly is done by deterministic Python
-code that slices the original source characters — the LLM literally cannot
-introduce wording drift, because it never gets a chance to output prose.
+## Core architectural principle: fully deterministic pointer resolution
+
+There is no text-generation model anywhere in this pipeline. Locating a
+person's mention resolves to **pointers** into a numbered paragraph list:
+which paragraphs are needed for context, and which single paragraph
+contains the target person — computed entirely by deterministic
+string/regex logic in `prefilter.py` (`build_pointer()`). All actual text
+assembly is done by deterministic Python code that slices the original
+source characters, so there is no channel through which wording drift
+could ever be introduced — not because a model was constrained well, but
+because there is no model.
 
 ```json
 {
   "found": true,
   "context_paragraph_indices": [89],
-  "target_paragraph_index": 97,
-  "redactions": []
+  "target_paragraph_index": 97
 }
 ```
 
@@ -63,10 +72,24 @@ introduce wording drift, because it never gets a chance to output prose.
   (order references, position headers). **Not necessarily contiguous** with
   the target — there can be a long run of *other people's own paragraphs*
   in between, and that gap is simply skipped, never included.
-- `target_paragraph_index` — the single paragraph containing the person.
-- `redactions` — verbatim substrings of *other* people to cut, used ONLY
-  when someone else shares the exact same paragraph/sentence as the target
-  (e.g. two names in one continuous sentence). Most of the time this is `[]`.
+- `target_paragraph_index` — the single paragraph containing the person,
+  found by `find_full_name_paragraph()` once full-name narrowing has
+  already confirmed the name occurs verbatim in the candidate window.
+
+**History**: an earlier version of this pipeline used a local LLM (Ollama,
+`qwen3:8b-q8_0`) to produce this same pointer, plus a third field
+(`redactions`) for stripping other people's text out of a shared paragraph.
+It was removed once it became clear every field it returned was already
+derivable deterministically: `found` and `target_paragraph_index` come
+straight out of full-name narrowing, and `context_paragraph_indices` was
+already being force-overridden with `find_preceding_order_paragraph()` /
+`find_preceding_label_header()`'s output regardless of what the LLM
+answered (see bug log items 6, 7, 9). Separately, the project decided
+`redactions` is no longer needed at all — other people sharing the
+target's paragraph are now left in the text as-is. The bug log below is
+kept because it documents *why* the deterministic finder functions look
+the way they do — every entry describes a real failure that shaped
+`prefilter.py`, not a hypothetical one.
 
 ## Pipeline (as currently implemented — entry point `run_demo.py`)
 
@@ -74,64 +97,61 @@ introduce wording drift, because it never gets a chance to output prose.
    `python-docx` (NOT `pandoc` — pandoc reflows/normalizes whitespace,
    which breaks verbatim-fidelity guarantees). Paragraphs live inside a
    single table cell in these documents.
-2. **Surname prefilter** (deterministic, no LLM): find all paragraphs
-   containing the surname, build ±8-paragraph windows around each hit. If
-   zero hits, return `found: false` immediately — no LLM call needed.
-3. **Full-name narrowing** (deterministic, no LLM): of the surname-based
-   windows, keep only the one(s) that contain the full name (surname +
-   first name + patronymic) verbatim. If this narrows to exactly one
-   window, that's all the LLM ever sees — this is what prevents the LLM
-   from mixing context between two namesakes governed by different orders
-   (see bug log below). Zero matches means the full name isn't verbatim
-   anywhere that day even though the surname is — this fails closed
-   (`found: false`, no LLM call) rather than handing the LLM weaker
-   surname-only context to guess from. Two or more matches is genuine
-   ambiguity (e.g. two identically-named people); `select_ambiguous_window()`
-   picks the first or last occurrence in the file per
-   `FULL_NAME_AMBIGUITY_STRATEGY` in `config.py`.
-4. **Forced deterministic context** (deterministic, no LLM — `run_demo.py`,
-   `find_preceding_order_paragraph()` + `find_preceding_label_header()` in
-   `prefilter.py`): before the LLM call, walk backward from the full-name
-   anchor paragraph for (a) the nearest preceding paragraph matching
-   `ORDER_REF_PATTERN` — this can be dozens of paragraphs outside the ±8
-   window, e.g. one order heading a long composition list of many
-   call-sign groups — and (b) the nearest preceding position/call-sign/
-   group label (contains `«»` guillemets or ends in `:`, or — weaker,
-   only trusted immediately adjacent — has no bare surname-like token at
-   all), skipping over any of the target's fellow list members along the
-   way since the target isn't always the first person listed under their
-   label. Both are merged into `context_paragraph_indices` after the LLM
-   call regardless of what the LLM itself returned — found empirically
-   that the LLM would still drop the label paragraph even when it was
-   already visible in-window and a prompt rule asked for it explicitly
-   (see bug log). This mirrors the project's established pattern: prefer
-   moving a recurring failure out of the model's hands entirely over
-   asking it more firmly in the prompt.
-5. **LLM call** (Ollama, local): given the (usually single, ~10-paragraph)
-   candidate window, returns the pointer JSON above. See "LLM config"
-   below for the non-obvious settings this depends on.
-6. **Deterministic assembly**: slice the indicated paragraphs, apply exact
-   `str.replace()` for each redaction (raises `ValueError` — fail closed —
-   if a redaction substring isn't found character-for-character).
-7. **Coordinate / location-label stripping**: `strip_coordinates()` removes
+2. **Surname prefilter** (deterministic): find all paragraphs containing
+   the surname, build ±8-paragraph windows around each hit. If zero hits,
+   return `found: false` immediately.
+3. **Full-name narrowing** (deterministic): of the surname-based windows,
+   keep only the one(s) that contain the full name (surname + first name +
+   patronymic) verbatim. If this narrows to exactly one window, that's the
+   only window pointer resolution ever looks at — this is what prevents
+   context from two namesakes governed by different orders from ever being
+   mixed (see bug log below). Zero matches means the full name isn't
+   verbatim anywhere that day even though the surname is — this fails
+   closed (`found: false`) rather than resolving from weaker surname-only
+   context. Two or more matches is genuine ambiguity (e.g. two
+   identically-named people); `select_ambiguous_window()` picks the first
+   or last occurrence in the file per `FULL_NAME_AMBIGUITY_STRATEGY` in
+   `config.py`.
+4. **Pointer resolution** (deterministic — `build_pointer()` in
+   `prefilter.py`): `target_paragraph_index` is
+   `find_full_name_paragraph()`'s result — guaranteed to match somewhere in
+   the narrowed window. `context_paragraph_indices` is built by walking
+   backward from that target paragraph for (a) the nearest preceding
+   paragraph matching `ORDER_REF_PATTERN` — this can be dozens of
+   paragraphs outside the ±8 window, e.g. one order heading a long
+   composition list of many call-sign groups — and (b) the nearest
+   preceding position/call-sign/group label (contains `«»` guillemets or
+   ends in `:`, or — weaker, only trusted immediately adjacent — has no
+   bare surname-like token at all), skipping over any of the target's
+   fellow list members along the way since the target isn't always the
+   first person listed under their label. This used to run *before* an LLM
+   call and then get force-merged into the pointer regardless of what the
+   LLM itself returned — found empirically that the LLM would still drop
+   the label paragraph even when it was already visible in-window and a
+   prompt rule asked for it explicitly (see bug log). It's now simply the
+   entire answer, since nothing else was ever contributing a correct
+   answer the LLM was actually needed for.
+5. **Deterministic assembly**: slice the indicated paragraphs and join
+   them. No redactions — other people's text sharing the target's
+   paragraph is left as-is.
+6. **Coordinate / location-label stripping**: `strip_coordinates()` removes
    MGRS-style grid coordinates (e.g. `37U CR 1234 5678`), and
    `strip_location_labels()` removes the phrase "район зосередження" and
-   its grammatical variants — both applied per-paragraph, after redactions
-   (so redaction matching still runs against untouched source text) and
-   before the fragment is joined. Both run unconditionally, always, not
-   just when the content looks out of place.
-8. **Guardrails** (all added after observing real model failures — see bug
-   log, do not remove without understanding why they exist):
+   its grammatical variants — both applied per-paragraph, before the
+   fragment is joined. Both run unconditionally, always, not just when the
+   content looks out of place.
+7. **Guardrails** (all added after observing real failures — see bug log,
+   do not remove without understanding why they exist):
    - Target's surname must appear in the final assembled text.
    - Context paragraphs must not reference more than one distinct order
      number (regex `№\S+`).
-9. **Punctuation fix**: trailing `;` → `.`, mechanical, nothing else.
-10. **Date + time metadata** (deterministic, no LLM — see "Time-of-day
-   extraction" below): `extract_date_from_filename()` parses the day's date
-   from the `.docx` filename (separator between DD/MM/YYYY varies by file —
-   `_`, `.`, or `-`, all seen in real filenames); `assign_time_boundaries()`
-   + `time_for_paragraph()` resolve which time governs the target
-   paragraph, trying the exact inline format first and falling back to the
+8. **Punctuation fix**: trailing `;` → `.`, mechanical, nothing else.
+9. **Date + time metadata** (deterministic — see "Time-of-day extraction"
+   below): `extract_date_from_filename()` parses the day's date from the
+   `.docx` filename (separator between DD/MM/YYYY varies by file — `_`,
+   `.`, or `-`, all seen in real filenames); `assign_time_boundaries()` +
+   `time_for_paragraph()` resolve which time governs the target paragraph,
+   trying the exact inline format first and falling back to the
    left-column heuristic. `assemble_fragment()` returns a dict
    (`{"text", "date", "time", "time_confidence"}`), not a bare string.
 
@@ -206,49 +226,36 @@ more files rather than assuming they generalize forever.
 - Final rendering into the actual extract `.docx` template (header/table/
   signature block matching the original samples).
 - A real accuracy benchmark: ~15-20 hand-verified (person, day, expected
-  pointer) cases, tracked as a pass-rate, to catch regressions when the
-  prompt or model changes instead of discovering bugs one production run
-  at a time (which is how all the bugs below were actually found).
+  pointer) cases, tracked as a pass-rate, to catch regressions when
+  `prefilter.py`'s finder functions change instead of discovering bugs one
+  production run at a time (which is how all the bugs below were actually
+  found).
 
-## LLM configuration — non-obvious things that matter
+Since the pipeline is now pure string/regex logic over an already-parsed
+paragraph list (no model inference), it runs in well under a second per
+person/day — no particular hardware requirements, and the LLM configuration
+notes that used to live here no longer apply.
 
-- **Model**: `qwen3:8b-q8_0` via Ollama. Apache 2.0. Q8_0 chosen
-  deliberately over the default Q4_K_M — for this workload (short JSON
-  output, longer prompt) prefill/prompt-processing dominates, not decode,
-  and Q4_K's dequant overhead can cancel out its memory-bandwidth
-  advantage on this CPU. Measure before assuming "smaller quant = faster"
-  here; it wasn't true in practice.
-- **`"think": false` MUST be a top-level field in the Ollama API request
-  body, not inside `"options"`.** Qwen3 is a hybrid thinking model and
-  defaults to thinking mode; the `/no_think` text trick in the prompt is
-  an unreliable legacy method. Getting this wrong silently multiplies
-  latency several-fold — this was the single biggest speed bug found.
-- `"keep_alive": "30m"` — avoid reloading the model between calls in a
-  test/dev session.
-- `num_thread: 8` — physical cores of the target dev machine (Ryzen 7
-  7840HS, 8C/16T). SMT did not help in testing; re-verify if hardware changes.
-- Structured output enforced via Ollama's `format` (JSON schema) parameter
-  — required, not optional, or JSON breakage is common at scale.
-
-## Target dev hardware
-
-AMD Ryzen 7 7840HS, Radeon 780M (CPU-only inference so far — Vulkan
-offload to the iGPU is a possible future speed lever, not yet explored),
-32GB RAM. Batch/offline processing, not real-time — a few seconds per
-query is acceptable.
-
-## Bug log (empirically found — read before touching the prompt or schema)
+## Bug log (empirically found — read before touching `prefilter.py`)
 
 Each of these was found by running real queries against the real sample
-combat log file, not by inspection. If you change the prompt or schema, re-run
-against these exact cases before considering it done.
+combat log file, not by inspection. Items 1-5 were found back when this
+pipeline used a local LLM to produce the pointer, before it was replaced
+by pure deterministic logic (see "Core architectural principle" above) —
+they're kept because they're *why* the schema is shaped the way it is
+(non-contiguous `context_paragraph_indices` + single `target_paragraph_index`,
+no `redactions`). Items 6-9 are about `prefilter.py`'s finder functions
+directly and remain fully live regression cases. If you touch
+`build_pointer()` or its finder functions, re-run against these exact
+cases before considering it done.
 
 1. **Model redacted the target's own name.** Given a person who was the
    *only* name in their selected range, the model still put the target's
    own line into `redactions` (confusing "who am I looking for" with "who
    do I remove"). Fixed by: explicit prompt rule + the surname-presence
-   guardrail (step 6 above), which fails loudly instead of silently
-   producing an empty fragment.
+   guardrail (pipeline step 7 above), which fails loudly instead of
+   silently producing an empty fragment. The guardrail is what survived —
+   redactions themselves are gone now (see "Core architectural principle").
 2. **Model tried to hold one giant contiguous range over a list of many
    people and enumerate everyone else for redaction — and got it wrong**
    (missed several names, referenced one paragraph outside its own chosen
@@ -267,7 +274,7 @@ against these exact cases before considering it done.
    two ways: (a) root cause — the full-name narrowing step (pipeline step
    3) now usually prevents the LLM from ever seeing two unrelated windows
    at once; (b) defense in depth — the order-number-conflict guardrail
-   (step 6) catches it if narrowing didn't apply.
+   (pipeline step 7) catches it if narrowing didn't apply.
 4. **Prompt bloat caused a 300s request timeout.** Adding few-shot
    examples to fix the above bugs grew the system prompt to ~6200 chars,
    which fights directly against the prefill-bound CPU bottleneck. Fixed
@@ -291,13 +298,10 @@ against these exact cases before considering it done.
    in the instructions, and trimmed the now-redundant `RESPONSE_SCHEMA`
    descriptions — 5073 → 3590 chars (-29%). Re-running the exact same real
    case afterward now returns the correct pointer with no hallucinated
-   redaction. This is one manual rerun, not a regression suite — re-verify
-   if this failure shape recurs, and treat the "real accuracy benchmark"
-   item (see Not yet built) as the right way to confirm this holds at scale
-   rather than trusting a single anecdotal pass. Defense in depth is still
-   in place regardless: the fail-closed redaction-substring check in
-   `assembly.py` would catch a recurrence (raises `ValueError`, no bad
-   output emitted).
+   redaction. This whole failure class is now moot: `redactions` was
+   removed from the schema entirely once the project decided other
+   people's text sharing the target's paragraph doesn't need to be
+   redacted (see "Core architectural principle" above).
 6. **Model picked a LATER, unrelated order paragraph as context because the
    TRUE governing order was outside the ±8 window entirely.** Real case
    (`ЖБД_12-04-2026.docx`, КРАВЧЕНКО Євгеній Геннадійович): the target sits
@@ -322,9 +326,10 @@ against these exact cases before considering it done.
    preceding `ORDER_REF_PATTERN` match regardless of distance, and (b) an
    immediately preceding line containing `«»` guillemets or ending in `:`
    (verified: never present in a bare personnel line across all three
-   sample files) — both merged into `context_paragraph_indices` in
-   `run_demo.py` after the LLM call, overriding whatever the LLM itself
-   returned. See "Pipeline" step 4 above.
+   sample files) — both merged into `context_paragraph_indices`, at the
+   time in `run_demo.py` after the LLM call (overriding whatever the LLM
+   itself returned), now directly inside `build_pointer()` since there's
+   no LLM answer left to override. See "Pipeline" step 4 above.
 7. **`ORDER_REF_PATTERN` false-matched plain "№N" numbering as an order
    reference, breaking item 6's fix.** Real case (`ЖБД_12-04-2026.docx`,
    ХОМЕНКО Дмитро Юрійович): target at paragraph 125, inside "Група №2"
@@ -387,9 +392,11 @@ against these exact cases before considering it done.
    strong guillemet/colon signal is trusted across the skip.
 
 **Pattern across items 1-9**: the fixes that actually held up were the ones
-that removed the need for the model to get something right, not the ones
-that just asked it more firmly. Prefer restructuring the schema/pipeline
-over adding another prompt paragraph when a bug recurs.
+that removed the need for a model to get something right, not the ones
+that just asked it more firmly — and that pattern is *why* an LLM ended up
+fully removable: every one of its jobs eventually got moved into
+deterministic code. Prefer restructuring the schema/pipeline over adding
+prompting/heuristic guesswork when a bug recurs.
 
 ## Known test data
 
@@ -425,19 +432,19 @@ the filename-separator variants (see `journals/`, gitignored):
   (the one regex — `ORDER_REF_PATTERN` — shared between `assembly.py`,
   `time_extraction.py`, and `prefilter.py`; kept separate to avoid a
   circular import between `assembly.py` and `time_extraction.py`),
-  `docx_parsing.py`, `prefilter.py`, `llm_client.py`
-  (system prompt + schema + `ask_llm()`), `time_extraction.py`,
-  `assembly.py`. `run_demo.py` is the entry point — it wires the modules
-  together and prints results for a handful of hand-picked test people.
-  It is intentionally *not* named `test_*.py`: it's a print-based demo, not
-  a pytest suite, and that naming is reserved for the real accuracy
-  benchmark still on the "not yet built" list. Docx-template rendering and
-  the batch driver (also not yet built) should each get their own new
-  module rather than growing an existing one.
-- Code comments (and docstrings) are English, matching the LLM system
-  prompt — the actual document text/data (combat log source content, test names,
-  runtime console output) stays Ukrainian since it's being extracted
-  verbatim, not translated.
+  `docx_parsing.py`, `prefilter.py` (surname/full-name narrowing +
+  `build_pointer()`), `time_extraction.py`, `assembly.py`. `run_demo.py` is
+  the entry point — it wires the modules together and prints results for a
+  handful of hand-picked test people. It is intentionally *not* named
+  `test_*.py`: it's a print-based demo, not a pytest suite, and that
+  naming is reserved for the real accuracy benchmark still on the "not yet
+  built" list. Docx-template rendering and the batch driver (also not yet
+  built) should each get their own new module rather than growing an
+  existing one.
+- Code comments (and docstrings) are English — the actual document
+  text/data (combat log source content, test names, runtime console
+  output) stays Ukrainian since it's being extracted verbatim, not
+  translated.
 - Every new failure mode found through testing should get: (1) a guardrail
   that fails loudly (never silently produces a degraded result), and (2)
   an entry in the bug log above with the real example that triggered it.

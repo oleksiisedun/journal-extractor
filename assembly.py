@@ -1,7 +1,7 @@
-"""Deterministic fragment assembly + validation (no LLM): slices source
-text per the LLM's pointer, applies exact-match redactions, runs
-guardrails, applies the one allowed punctuation fix, and attaches date/time
-metadata."""
+"""Deterministic fragment assembly + validation (no LLM anywhere in this
+pipeline): slices source text per the pointer built by
+prefilter.build_pointer(), runs guardrails, applies the one allowed
+punctuation fix, and attaches date/time metadata."""
 
 import re
 
@@ -76,13 +76,13 @@ def strip_location_labels(text):
 
 
 def assemble_fragment(paragraphs, pointer, date_value=None, time_boundaries=None):
-    """Deterministically assembles the final fragment from the LLM's pointer
-    — slices source text, applies redactions, runs guardrails, applies the
-    one allowed punctuation fix. Also attaches the day's date (from the
-    filename, via extract_date_from_filename()) and the heuristically
-    assigned time (via assign_time_boundaries() + time_for_paragraph()) —
-    both deterministic, no LLM involvement. Returns a dict, not a bare
-    string, since date/time metadata rides along with the text."""
+    """Deterministically assembles the final fragment from the pointer
+    built by prefilter.build_pointer() — slices source text, runs
+    guardrails, applies the one allowed punctuation fix. Also attaches the
+    day's date (from the filename, via extract_date_from_filename()) and
+    the heuristically assigned time (via assign_time_boundaries() +
+    time_for_paragraph()). Returns a dict, not a bare string, since
+    date/time metadata rides along with the text."""
     para_dict = dict(paragraphs)
 
     if not pointer["found"]:
@@ -95,34 +95,23 @@ def assemble_fragment(paragraphs, pointer, date_value=None, time_boundaries=None
 
     # SANITY GUARDRAIL: if TWO DIFFERENT order numbers appear among the
     # CONTEXT paragraphs (not among all selected paragraphs — the target
-    # paragraph itself may not contain a number at all), that's a sign the
-    # model stuck in context from an unrelated, foreign order (found
-    # empirically: context=[36, 89], where 36 belongs to БР18 for a
-    # DIFFERENT person, and 89 to the correct БР19). One person cannot be
-    # governed by two different orders at once within a single record.
+    # paragraph itself may not contain a number at all), that's a sign
+    # context was pulled in from an unrelated, foreign order (found
+    # empirically, back when this pipeline used an LLM: context=[36, 89],
+    # where 36 belongs to БР18 for a DIFFERENT person, and 89 to the
+    # correct БР19). One person cannot be governed by two different orders
+    # at once within a single record — kept as defense in depth even though
+    # build_pointer() only ever adds a single preceding order paragraph.
     order_refs = set()
     for i in context_indices:
         order_refs |= extract_order_refs(para_dict[i])
     if len(order_refs) > 1:
         raise ValueError(
-            f"MODEL LOGIC ERROR: context paragraphs reference MULTIPLE "
-            f"different orders at once ({order_refs}) — this is a sign the "
-            f"model mixed in context from an unrelated, foreign section. "
-            f"Result REJECTED.\ncontext_paragraph_indices={context_indices}"
+            f"PIPELINE ERROR: context paragraphs reference MULTIPLE "
+            f"different orders at once ({order_refs}) — a person can only "
+            f"be governed by one order. Result REJECTED.\n"
+            f"context_paragraph_indices={context_indices}"
         )
-
-    # apply redactions — exact str.replace, fail-closed
-    for r in pointer["redactions"]:
-        applied = False
-        for i in range(len(parts)):
-            if r in parts[i]:
-                parts[i] = parts[i].replace(r, "")
-                applied = True
-        if not applied:
-            raise ValueError(
-                f"VALIDATION ERROR: string to remove was not found verbatim "
-                f"in the selected paragraphs — result REJECTED, manual review needed:\n{r!r}"
-            )
 
     # mechanical strip — coordinates and location labels carry no legal/
     # identity meaning for the extract and must never leak into the output
@@ -131,17 +120,16 @@ def assemble_fragment(paragraphs, pointer, date_value=None, time_boundaries=None
 
     fragment_text = "\n\n".join(parts)
 
-    # SANITY GUARDRAIL: the target person's full name must physically be
-    # present in the final fragment. If the model mistakenly put the
-    # target THEMSELVES into redactions (confusing "who is the target" with
-    # "who to remove"), the fragment would come out without them, and this
-    # must be caught here, not let through.
+    # SANITY GUARDRAIL: the target person's surname must physically be
+    # present in the final fragment — catches target_paragraph_index
+    # pointing at the wrong paragraph, or a stripping rule accidentally
+    # eating it.
     surname = pointer.get("_surname_check")
     if surname and surname.upper() not in fragment_text.upper():
         raise ValueError(
-            f"MODEL LOGIC ERROR: surname '{surname}' is missing from the "
-            f"assembled fragment — the LLM likely redacted the target person "
-            f"themselves by mistake. Result REJECTED.\nfragment_text={fragment_text!r}"
+            f"PIPELINE ERROR: surname '{surname}' is missing from the "
+            f"assembled fragment — target_paragraph_index likely points at "
+            f"the wrong paragraph. Result REJECTED.\nfragment_text={fragment_text!r}"
         )
 
     # the one allowed exception to the "verbatim" rule
