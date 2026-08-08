@@ -273,9 +273,11 @@ by pure deterministic logic (see "Core architectural principle" above) —
 they're kept because they're *why* the schema is shaped the way it is
 (non-contiguous `context_paragraph_indices` + single `target_paragraph_index`,
 no `redactions`). Items 6-9 are about `prefilter.py`'s finder functions
-directly and remain fully live regression cases. If you touch
-`build_pointer()` or its finder functions, re-run against these exact
-cases before considering it done.
+directly and remain fully live regression cases. Item 10 is about
+`assembly.py`'s `strip_coordinates()` instead. If you touch
+`build_pointer()` or its finder functions, or the coordinate/label
+stripping in `assembly.py`, re-run against these exact cases before
+considering it done.
 
 1. **Model redacted the target's own name.** Given a person who was the
    *only* name in their selected range, the model still put the target's
@@ -418,8 +420,27 @@ cases before considering it done.
    extended across this walk — it only fires when directly adjacent to the
    target, to avoid guessing on some distant, ambiguous line; only the
    strong guillemet/colon signal is trusted across the skip.
+10. **A trailing colon plus its now-dangling comma survived coordinate
+    stripping and collided into stray punctuation.** Real case: `"...
+    Харківської області, за координатами: (37U CR 1234 5678; 37U CR 1234
+    5678; 37U CR 1234 5678; 37U CR 1234 5678)."` stripped down to `"...
+    Харківської області,:."` instead of `"... Харківської області."`. Two
+    compounding gaps: (a) `COORDINATE_LABEL_PATTERN` only matched `"за
+    координат\w*"`, not the `":"` some real occurrences carry right after
+    (item 8's fix case had no colon, so it was never exercised), leaving a
+    bare `":"` behind once the phrase itself was removed; (b) the comma
+    that used to separate the preceding clause from "за координатами" had
+    nothing left to introduce once both the phrase and its parenthetical
+    were gone, but nothing removed it — it collided with the trailing `"."`
+    via the existing whitespace-before-punctuation collapse regex,
+    producing `",:."` instead of a clean `"."`. Fixed by (a) extending
+    `COORDINATE_LABEL_PATTERN` to swallow an optional trailing `:` plus
+    whitespace, and (b) adding a rule to `strip_coordinates()` that drops a
+    comma immediately preceding a now-adjacent `.`/`;` (`r",\s*([.;])"` ->
+    `r"\1"`) — both still scoped to artifacts of coordinate stripping
+    specifically (CLAUDE.md rule 3), not a general punctuation rule.
 
-**Pattern across items 1-9**: the fixes that actually held up were the ones
+**Pattern across items 1-10**: the fixes that actually held up were the ones
 that removed the need for a model to get something right, not the ones
 that just asked it more firmly — and that pattern is *why* an LLM ended up
 fully removable: every one of its jobs eventually got moved into

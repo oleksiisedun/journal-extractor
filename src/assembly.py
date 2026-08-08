@@ -13,12 +13,15 @@ from time_extraction import time_for_paragraph
 COORDINATE_PATTERN = re.compile(r"\d{1,2}[A-Z]\s[A-Z]{2}\s\d{2,5}\s\d{2,5}")
 
 # "за координатами" (by/at coordinates) -- the phrase that introduces an
-# MGRS reference, e.g. "Група №2 за координатами (37U CR 1234 5678)".
-# Meaningless once the coordinates themselves are stripped, so it's removed
-# as part of the same coordinate-removal rule (CLAUDE.md rule 4), not a
-# separate one -- same rationale as the digits: tactical data with no place
-# in a personnel extract.
-COORDINATE_LABEL_PATTERN = re.compile(r"за\s+координат\w*", re.IGNORECASE)
+# MGRS reference, e.g. "Група №2 за координатами (37U CR 1234 5678)" or
+# "...за координатами: (37U CR 1234 5678)". Meaningless once the
+# coordinates themselves are stripped, so it's removed as part of the same
+# coordinate-removal rule (CLAUDE.md rule 4), not a separate one -- same
+# rationale as the digits: tactical data with no place in a personnel
+# extract. The optional trailing ":" + whitespace is swallowed too, since
+# the colon introduces the (now-removed) coordinate parenthetical and is
+# equally dangling on its own once the parenthetical is gone.
+COORDINATE_LABEL_PATTERN = re.compile(r"за\s+координат\w*:?\s*", re.IGNORECASE)
 
 # "район зосередження" (concentration area) and its grammatical variants
 # (районі, району, зосередженню, ...), with an immediately preceding
@@ -54,6 +57,12 @@ def strip_coordinates(text):
 
     text = re.sub(r"\(([^()]*)\)", _drop_if_empty, text)
     text = COORDINATE_LABEL_PATTERN.sub("", text)
+    # the comma that used to separate the preceding clause from "за
+    # координатами" is left dangling once that phrase and its parenthetical
+    # are gone (e.g. "...області, за координатами: (...)." -> "...області,."
+    # without this) -- drop it so it doesn't collide with the punctuation
+    # that now immediately follows.
+    text = re.sub(r",\s*([.;])", r"\1", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"[ \t]+([,;.):])", r"\1", text)
     text = re.sub(r"[ \t]+$", "", text, flags=re.MULTILINE)
