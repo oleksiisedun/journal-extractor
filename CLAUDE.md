@@ -10,9 +10,7 @@ Source documents carry a restricted (internal-use) classification and
 contain real personnel names, ranks, unit positions, and order numbers.
 **This must stay fully local/offline — no cloud LLM calls, no telemetry, no
 LLM of any kind.** The pipeline is 100% deterministic string/regex logic
-(see "Core architectural principle" below); an earlier version used a
-local LLM and it was removed once every field it produced turned out to be
-already derivable deterministically.
+(see "Core architectural principle" below).
 
 ## The one rule everything else follows
 
@@ -42,8 +40,7 @@ The only edits ever allowed:
 
 If another person shares the exact same paragraph/sentence as the target,
 their text is left in place, untouched — no redaction of other people's
-names is performed (project decision; an earlier version of this pipeline
-did redact them, see "Core architectural principle" below).
+names is performed.
 
 Nothing else. If you're ever tempted to "clean up" or "reword" anything,
 stop — that's the wrong direction for this project.
@@ -75,21 +72,6 @@ because there is no model.
 - `target_paragraph_index` — the single paragraph containing the person,
   found by `find_full_name_paragraph()` once full-name narrowing has
   already confirmed the name occurs verbatim in the candidate window.
-
-**History**: an earlier version of this pipeline used a local LLM (Ollama,
-`qwen3:8b-q8_0`) to produce this same pointer, plus a third field
-(`redactions`) for stripping other people's text out of a shared paragraph.
-It was removed once it became clear every field it returned was already
-derivable deterministically: `found` and `target_paragraph_index` come
-straight out of full-name narrowing, and `context_paragraph_indices` was
-already being force-overridden with `find_preceding_order_paragraph()` /
-`find_preceding_label_header()`'s output regardless of what the LLM
-answered (see [docs/bug-log.md](docs/bug-log.md) items 6, 7, 9).
-Separately, the project decided `redactions` is no longer needed at all —
-other people sharing the target's paragraph are now left in the text
-as-is. The bug log is kept because it documents *why* the deterministic
-finder functions look the way they do — every entry describes a real
-failure that shaped `prefilter.py`, not a hypothetical one.
 
 ## Pipeline (as currently implemented — entry point `generate_extract.py`,
 run via `run.sh`)
@@ -125,14 +107,7 @@ run via `run.sh`)
    ends in `:`, or — weaker, only trusted immediately adjacent — has no
    bare surname-like token at all), skipping over any of the target's
    fellow list members along the way since the target isn't always the
-   first person listed under their label. This used to run *before* an LLM
-   call and then get force-merged into the pointer regardless of what the
-   LLM itself returned — found empirically that the LLM would still drop
-   the label paragraph even when it was already visible in-window and a
-   prompt rule asked for it explicitly (see
-   [docs/bug-log.md](docs/bug-log.md)). It's now simply the
-   entire answer, since nothing else was ever contributing a correct
-   answer the LLM was actually needed for.
+   first person listed under their label.
 5. **Deterministic assembly**: slice the indicated paragraphs and join
    them. No redactions — other people's text sharing the target's
    paragraph is left as-is.
@@ -172,10 +147,7 @@ run via `run.sh`)
     placeholder substitution, never text generation. Each person's
     `"found"` days are stacked as additional paragraphs inside that same
     single row (blank-paragraph separated) rather than cloning a new table
-    row per day — matches both the template's literal one-row structure
-    and one of the two real sample layouts observed; the other real sample
-    clones a row per day, which was deliberately not chosen (see git
-    history / the plan behind this feature for the two layouts compared).
+    row per day — matches the template's literal one-row structure.
     Uncertain or entirely unresolved times are flagged inline in the
     rendered text itself (e.g. `"05.00 (час приблизний — перевірити)"`),
     never silently presented as fact. `generate_extract.py` is the entry
@@ -204,11 +176,9 @@ linear-interpolation mapping from left-column position to right-column
 position landed correctly on real section/list headers for only some
 labels — for the rest it landed **inside a single, homogeneous ~30-person
 list governed by one order**, which would have silently mis-assigned a
-time to real people. Confirmed with the user: this alignment is purely
-visual/eyeballed by whoever typed the document — there is no textual
-convention that recovers it exactly, short of rendering the page
-(LibreOffice → PDF/coordinates), which was deliberately ruled out as too
-heavy for now. Instead, a snap-to-nearest-boundary heuristic is used
+time to real people. The alignment is purely visual/eyeballed by whoever
+typed the document — there is no textual convention that recovers it
+exactly. Instead, a snap-to-nearest-boundary heuristic is used
 (`is_boundary_paragraph()`, `_assign_time_boundaries_left_column()`):
 1. Only paragraphs that look like a genuine section/list boundary — Roman-
    numeral headers, lines ending in `:`, or order-reference sentences
@@ -259,10 +229,9 @@ more files rather than assuming they generalize forever.
   production run at a time (which is how every entry in
   [docs/bug-log.md](docs/bug-log.md) was actually found).
 
-Since the pipeline is now pure string/regex logic over an already-parsed
-paragraph list (no model inference), it runs in well under a second per
-person/day — no particular hardware requirements, and the LLM configuration
-notes that used to live here no longer apply.
+The pipeline is pure string/regex logic over an already-parsed paragraph
+list (no model inference), so it runs in well under a second per
+person/day — no particular hardware requirements.
 
 ## Bug log
 
