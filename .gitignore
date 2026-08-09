@@ -2,7 +2,8 @@ __pycache__/
 *.pyc
 .~lock.*#
 
-# ДСК source/sample documents — must stay local, never committed
+# Source/sample documents — must stay local, never committed
 *.docx
 /journals/
 /samples/
+/output/
