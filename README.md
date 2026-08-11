@@ -208,6 +208,5 @@ hardware requirements.
 
 `CLAUDE.md` has the full project context: the complete edit-rule list, the
 pointer schema, the empirical bug log behind each guardrail and finder
-function (including the earlier LLM-based version of this pipeline that
-motivated them), known test data/people for regression testing, and what's
-not yet built (a tracked accuracy benchmark).
+function, known test data/people for regression testing, and what's not
+yet built (a tracked accuracy benchmark).

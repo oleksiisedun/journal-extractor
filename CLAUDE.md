@@ -314,7 +314,7 @@ person/day — no particular hardware requirements.
 ## Bug log
 
 Every empirically-found failure that shaped `prefilter.py`'s finder
-functions and `assembly.py`'s stripping logic — 10 entries so far — lives
+functions and `assembly.py`'s stripping logic — 7 entries so far — lives
 in [docs/bug-log.md](docs/bug-log.md), not here. Read it before touching
 `build_pointer()`, its finder functions, or coordinate/label stripping;
 each entry is a real regression case to re-check, not a hypothetical one.
