@@ -216,7 +216,7 @@ run via `run.sh`)
       how many lines a paragraph wraps to.
 12. **Requested date range** (`person_spec.py`): each person's CLI spec may
     carry an optional trailing `DD.MM.YYYY` or `DD.MM.YYYY-DD.MM.YYYY`
-    (e.g. `"старший солдат ЛЕВИЦЬКИЙ Микита Петрович
+    (e.g. `"старший солдат БОНДАРЕНКО Олег Васильович
     02.04.2026-23.04.2026"`), parsed by `parse_person_spec()` and used in
     `generate_extract.py`'s per-person loop to filter which of
     `journals/`'s already-loaded days get searched for that person. When a

@@ -1,12 +1,9 @@
 # Combat Log Extract Generator
 
-A pipeline that generates official "витяг" (extract) documents from combat
+A pipeline that generates official `витяг` document from combat
 log records for a specific serviceman over a date range, sourced from
 per-day `.docx` files.
-
-Source documents carry a restricted (internal-use) classification.
-**Everything runs fully local/offline — no cloud LLM calls, no telemetry,
-no LLM of any kind.**
+**Everything runs fully local/offline — no cloud calls, no LLM of any kind.**
 
 ## Core principle
 
@@ -88,14 +85,52 @@ graph TD
 
 **1. Install Python dependencies**
 
-```bash
-pip install python-docx pillow --break-system-packages
-```
-
 (Pillow is used only to measure real glyph widths from the bundled
 `assets/fonts/Carlito-Regular.ttf`, so `render.py` can compute how many
 visual lines a paragraph wraps to and keep the `{дата}` column aligned with
 `{витяг}` — see `text_wrap.py`.)
+
+**Linux**
+
+Most current distros (Debian/Ubuntu and derivatives, in particular) ship a
+Python that refuses a system-wide `pip install` outside a virtual
+environment (PEP 668). `--break-system-packages` overrides that guard:
+
+```bash
+pip install python-docx pillow --break-system-packages
+```
+
+If your distro doesn't enforce PEP 668, or you'd rather not install into
+the system Python at all, a virtual environment works too and needs no
+flag:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install python-docx pillow
+```
+
+(Activate the venv — `source .venv/bin/activate` — in every new shell
+before running `run.sh`.)
+
+**macOS**
+
+Same PEP 668 guard applies to Homebrew's Python. Either
+`pip install python-docx pillow --break-system-packages`, or use a venv as
+shown above.
+
+**Windows**
+
+Install Python 3 from [python.org](https://www.python.org/downloads/) (check
+"Add python.exe to PATH" during setup), then from PowerShell or Command
+Prompt:
+
+```powershell
+pip install python-docx pillow
+```
+
+`--break-system-packages` is specific to PEP 668-enforcing Python installs
+(Linux/macOS above) — omit it on Windows, it isn't recognized there.
 
 **2. Provide source files**
 
@@ -116,12 +151,25 @@ every `*.docx` file anywhere in the repo, including generated output).
 inline arguments or as a path to a newline-delimited `.txt` file:
 
 ```bash
-./run.sh "молодший сержант КОТИК Андрій Сергійович"
-./run.sh "молодший сержант КОТИК Андрій Сергійович" "солдат ТУЗ І.В."
+./run.sh "молодший сержант ПЕТРЕНКО Іван Миколайович"
+./run.sh "молодший сержант ПЕТРЕНКО Іван Миколайович" "солдат ШЕВЧЕНКО О.В."
 ./run.sh ./names.txt
-./run.sh "старший солдат ЛЕВИЦЬКИЙ Микита Петрович 02.04.2026"
-./run.sh "старший солдат ЛЕВИЦЬКИЙ Микита Петрович 02.04.2026-23.04.2026"
+./run.sh "старший солдат БОНДАРЕНКО Олег Васильович 02.04.2026"
+./run.sh "старший солдат БОНДАРЕНКО Олег Васильович 02.04.2026-23.04.2026"
 ```
+
+**Windows**: `run.sh` is a bash script and won't run directly in PowerShell or
+Command Prompt. Either run it through Git Bash (bundled with
+[Git for Windows](https://git-scm.com/download/win)) or WSL, or call the
+Python entry point it wraps directly:
+
+```powershell
+python src\generate_extract.py "молодший сержант ПЕТРЕНКО Іван Миколайович"
+```
+
+All CLI arguments and behavior are identical either way — `run.sh` only
+`cd`s to the repo root and forwards its arguments to
+`src/generate_extract.py`.
 
 Each name must be a full `"rank SURNAME Firstname Patronymic"` string
 (surname in caps), the same shape `prefilter.py`'s narrowing expects,
