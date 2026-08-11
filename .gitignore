@@ -4,6 +4,7 @@ __pycache__/
 
 # Source/sample documents — must stay local, never committed
 *.docx
+
 /journals/
 /samples/
 /output/
