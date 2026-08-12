@@ -1,6 +1,6 @@
 """Runtime settings for the extraction pipeline."""
 
-COMBAT_LOG_DIR = "journals"  # directory of daily combat log .docx files
+JOURNAL_DIR = "journals"  # directory of daily journal .docx files
 TEMPLATE_PATH = "templates/1.docx"  # extract .docx template with {placeholders}
 OUTPUT_DIR = "output"  # generated extract .docx files land here
 

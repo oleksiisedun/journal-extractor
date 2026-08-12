@@ -20,7 +20,7 @@ import os
 import sys
 from datetime import date, timedelta
 
-from config import COMBAT_LOG_DIR, OUTPUT_DIR, TEMPLATE_PATH
+from config import JOURNAL_DIR, OUTPUT_DIR, TEMPLATE_PATH
 from docx_parsing import extract_date_from_filename, load_paragraph_columns, load_paragraphs
 from merge import merge_consecutive_entries
 from person_spec import parse_person_spec
@@ -60,7 +60,7 @@ def main():
     people = load_people(sys.argv[1:])
 
     docx_paths = []
-    for docx_path in glob.glob(os.path.join(COMBAT_LOG_DIR, "**", "*.docx"), recursive=True):
+    for docx_path in glob.glob(os.path.join(JOURNAL_DIR, "**", "*.docx"), recursive=True):
         try:
             extract_date_from_filename(docx_path)
         except ValueError:
@@ -69,7 +69,7 @@ def main():
         docx_paths.append(docx_path)
     docx_paths.sort(key=extract_date_from_filename)
     if not docx_paths:
-        print(f"У {COMBAT_LOG_DIR}/ немає жодного .docx файлу.")
+        print(f"У {JOURNAL_DIR}/ немає жодного .docx файлу.")
         return
 
     # each day's paragraphs/time boundaries only depend on the file, not
@@ -114,7 +114,7 @@ def main():
                 if missing_date not in covered_dates:
                     print(
                         f"    [{missing_date.isoformat()}] ЖУРНАЛ ВІДСУТНІЙ — "
-                        f"файл за цю дату не знайдено в {COMBAT_LOG_DIR}/"
+                        f"файл за цю дату не знайдено в {JOURNAL_DIR}/"
                     )
                 missing_date += timedelta(days=1)
 

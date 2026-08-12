@@ -1,4 +1,4 @@
-"""Parses a day's .docx combat log into indexed, verbatim paragraph lists
+"""Parses a day's .docx journal into indexed, verbatim paragraph lists
 (no LLM involvement)."""
 
 import os
@@ -39,7 +39,7 @@ def load_paragraph_columns(docx_path):
 
     Assumes column 0 = time, column 1 = content, which holds for the one
     real sample file available so far (journals/ЖБД_02_04_2026.docx) --
-    re-validate against other combat log templates if the layout ever differs.
+    re-validate against other journal templates if the layout ever differs.
     """
     doc = Document(docx_path)
     rows_out = []
@@ -72,7 +72,7 @@ FILENAME_DATE_PATTERN = re.compile(r"(\d{2})[_.\-](\d{2})[_.\-](\d{4})")
 
 
 def extract_date_from_filename(docx_path):
-    """Extracts the day's date from a combat log filename (e.g. 'ЖБД_02_04_2026.docx',
+    """Extracts the day's date from a journal filename (e.g. 'ЖБД_02_04_2026.docx',
     'ЖБД 10.07.2026.docx', 'ЖБД_12-04-2026.docx' -> 2026-04-02 / 2026-07-10 /
     2026-04-12, Ukrainian day-first convention). The separator between the
     DD/MM/YYYY groups varies by file (seen so far: '_', '.', '-') and isn't
