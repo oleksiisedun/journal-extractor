@@ -1,7 +1,7 @@
 # Bug log (empirically found — read before touching `prefilter.py`)
 
 Each of these was found by running real queries against the real sample
-combat log files, not by inspection. Items 1-4 are about `prefilter.py`'s
+journal files, not by inspection. Items 1-4 are about `prefilter.py`'s
 finder functions directly and remain fully live regression cases. Item 5
 is about `assembly.py`'s `strip_coordinates()` instead, item 6 about the
 multi-order guardrail in `assembly.py`'s `assemble_fragment()`, and item 7

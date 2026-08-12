@@ -1,9 +1,9 @@
-# Combat Log Extract Generator — Project Context
+# Journal Extract Generator — Project Context
 
 ## What this is
 
 A pipeline that automatically generates official "витяг" (extract) documents
-from combat log records for a specific
+from journal records for a specific
 serviceman over a date range, sourced from per-day `.docx` files.
 
 Source documents carry a restricted (internal-use) classification and
@@ -14,7 +14,7 @@ LLM of any kind.** The pipeline is 100% deterministic string/regex logic
 
 ## The one rule everything else follows
 
-**The output text must be 100% verbatim from the source combat log. Zero
+**The output text must be 100% verbatim from the source journal. Zero
 paraphrasing, zero rewriting, zero "smoothing" of style.** This is an
 official document — invented or reworded text is not an acceptable failure
 mode, ever.
@@ -376,7 +376,7 @@ the filename-separator variants (see `journals/`, gitignored):
   with how rendering got its own (`render.py`) instead of being bolted
   onto `assembly.py`.
 - Code comments (and docstrings) are English — the actual document
-  text/data (combat log source content, test names, runtime console
+  text/data (journal source content, test names, runtime console
   output) stays Ukrainian since it's being extracted verbatim, not
   translated.
 - Every new failure mode found through testing should get: (1) a guardrail

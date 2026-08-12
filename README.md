@@ -1,13 +1,13 @@
-# Combat Log Extract Generator
+# Journal Extract Generator
 
-A pipeline that generates official `витяг` document from combat
-log records for a specific serviceman over a date range, sourced from
+A pipeline that generates official `витяг` document from journal
+records for a specific serviceman over a date range, sourced from
 per-day `.docx` files.
 **Everything runs fully local/offline — no cloud calls, no LLM of any kind.**
 
 ## Core principle
 
-The output text must be **100% verbatim** from the source combat log — zero
+The output text must be **100% verbatim** from the source journal — zero
 paraphrasing, zero rewriting. There is no text-generation model anywhere in
 this pipeline: locating a person's mention resolves to *pointers* into a
 numbered paragraph list (which paragraphs to include as context, which one
@@ -49,9 +49,9 @@ introduces a text-generation step.
 
 ```mermaid
 graph TD
-  CombatLog[(".docx"\ncombat log source)] --> Load["load_paragraphs()\nindexed, verbatim"]
-  CombatLog --> Filename["extract_date_from_filename()"]
-  CombatLog --> Cols["load_paragraph_columns()\ntime column + content column"]
+  Journal[(".docx"\njournal source)] --> Load["load_paragraphs()\nindexed, verbatim"]
+  Journal --> Filename["extract_date_from_filename()"]
+  Journal --> Cols["load_paragraph_columns()\ntime column + content column"]
 
   subgraph Prefilter["Deterministic prefilter — no LLM"]
     Load --> Surname["find_candidate_windows()\nsurname match, ±8 paragraphs"]
@@ -134,8 +134,8 @@ pip install python-docx pillow
 
 **2. Provide source files**
 
-Place daily `.docx` combat log files in the `journals/` folder (or point
-`COMBAT_LOG_DIR` in `config.py` at a different directory). The scripts pick
+Place daily `.docx` journal files in the `journals/` folder (or point
+`JOURNAL_DIR` in `config.py` at a different directory). The scripts pick
 up every `.docx` file found there, sorted chronologically by the date
 encoded in each filename. Sample extract documents go in `samples/`; the
 extract template goes in `templates/` (`TEMPLATE_PATH` in `config.py`).
