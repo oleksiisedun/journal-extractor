@@ -1,6 +1,6 @@
 # Journal Extract Generator
 
-A pipeline that generates official `витяг` document from journal
+A pipeline that generates official extract (`витяг`) document from journal
 records for a specific serviceman over a date range, sourced from
 per-day `.docx` files.
 **Everything runs fully local/offline — no cloud calls, no LLM of any kind.**
