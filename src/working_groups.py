@@ -41,11 +41,14 @@ WORKING_GROUP_ORDER_REF_PATTERN = re.compile(r"(?:№\s*(?:БР\s*)?|БР\s*)(\d
 
 def _extract_order_ids(text):
     """Distinct order-number tokens referenced in `text`, in
-    first-appearance order. Dedup keys on the bare digits -- the same
-    order number is written with and without the 'БР' prefix in different
-    places in the real document, so keying on the raw string would treat
-    one real order as two. Whichever formatting (БР-prefixed or not) is
-    seen first for a given number wins the displayed token.
+    first-appearance order, always displayed with a 'БР' prefix -- the
+    same order number is written with and without 'БР' in different
+    places in the real document (e.g. '№1927/...' vs '№БР 1927/...' for
+    the very same order), so this is purely a display convention, not a
+    literal transcription of that one occurrence's source formatting;
+    dedup keys on the bare digits so both spellings collapse to one token
+    ('БР1927') instead of appearing as two different order ids for what is
+    the same order.
     @param {str} text
     @returns {list[str]}
     """
@@ -53,7 +56,7 @@ def _extract_order_ids(text):
     for match in WORKING_GROUP_ORDER_REF_PATTERN.finditer(text):
         digits = match.group(1)
         if digits not in seen:
-            seen[digits] = ("БР" + digits) if "БР" in match.group(0) else digits
+            seen[digits] = "БР" + digits
     return list(seen.values())
 
 
