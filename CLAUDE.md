@@ -252,12 +252,17 @@ run via `run.sh`)
 `generate_extract.py --working-groups <file.docx> [--year YYYY]` is a
 structurally different mode from the per-person pipeline above: instead of
 one extract per *person* across many days, it produces one extract per
-*run of chronologically-consecutive reporting items ("blocks") that share
-byte-identical text* found in a single month-spanning "РОБОЧІ ГРУПИ"
-(working groups) report — a `.docx` written as flowing body paragraphs (no
-table, unlike the daily journals). A recurring item (same governing order,
-same body text) reported day after day collapses into one file with each
-day's date+time stacked, instead of one near-duplicate file per day.
+*run of chronologically-consecutive reporting items ("blocks") whose text
+matches once punctuation marks are ignored* found in a single
+month-spanning "РОБОЧІ ГРУПИ" (working groups) report — a `.docx` written
+as flowing body paragraphs (no table, unlike the daily journals). A
+recurring item (same governing order, same body text modulo incidental
+punctuation — e.g. a trailing `.` one day vs `;` another, or a `,` vs `;`
+mid-sentence) reported day after day collapses into one file with each
+day's date+time stacked, instead of one near-duplicate file per day. Each
+block's own text still renders byte-verbatim in the output — only the
+*grouping decision* ignores punctuation, per
+`working_groups.py`'s `_normalize_for_grouping()`.
 
 `working_groups.py`'s `parse_working_group_blocks()` walks the
 document's paragraphs deterministically: a `DD.MM` line is a date-header
@@ -293,9 +298,10 @@ report in January).
 chronologically, applies the same coordinate/location stripping and
 trailing `;` → `.` fix as the main pipeline to each block's text, then
 groups them via `working_groups.py`'s `group_consecutive_identical_blocks()`
-— mirrors `merge.merge_consecutive_entries()`'s adjacency-walk (byte-
-identical text AND exactly-consecutive calendar dates, a gap always breaks
-a run), but *partitions* rather than *folds*: every block stays its own
+— mirrors `merge.merge_consecutive_entries()`'s adjacency-walk
+(punctuation-insensitive text match AND exactly-consecutive calendar
+dates, a gap always breaks a run), but *partitions* rather than *folds*:
+every block stays its own
 entry within a run instead of collapsing into a single "з ... по ..."
 line, since real working-groups extracts show each day's own date+time
 stacked, never collapsed — kept as a separate function from

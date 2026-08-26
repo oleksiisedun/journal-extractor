@@ -3,11 +3,12 @@ covering a whole month as flowing body paragraphs (no table, unlike the
 daily journals) -- into per-item blocks (no LLM anywhere -- see CLAUDE.md's
 "Core architectural principle"). One block = one item paragraph; a
 date-header paragraph only supplies the fallback date for items that
-don't carry their own inline date. Consecutive blocks whose text is
-byte-identical (only date/time differing -- a recurring reporting item)
-are grouped by group_consecutive_identical_blocks() into one extract
-.docx instead of one file per block; see generate_extract.py's
-generate_working_groups().
+don't carry their own inline date. Consecutive blocks whose text matches
+once punctuation marks are ignored (only date/time -- and sometimes
+incidental punctuation -- differing, a recurring reporting item) are
+grouped by group_consecutive_identical_blocks() into one extract .docx
+instead of one file per block, though each block's own text still renders
+byte-verbatim; see generate_extract.py's generate_working_groups().
 """
 
 import re
@@ -130,27 +131,32 @@ def parse_working_group_blocks(docx_path, year_override=None):
 def group_consecutive_identical_blocks(blocks):
     """Partitions `blocks` (must already be sorted chronologically by
     "date", and already carrying each block's final, fully-processed
-    "text") into runs of chronologically-consecutive blocks that share
-    byte-identical "text" -- the recurring-item case where only the
-    date/time changes day to day. Unlike merge.merge_consecutive_entries(),
+    "text") into runs of chronologically-consecutive blocks whose "text"
+    matches once punctuation marks are ignored (`_normalize_for_grouping()`)
+    -- the recurring-item case where only the date/time (and sometimes
+    incidental punctuation, e.g. a trailing '.' vs ';', or a ',' vs ';'
+    mid-sentence) changes day to day. Unlike merge.merge_consecutive_entries(),
     every block stays its own entry within a run (no fold into a single "з
     ... по ..." line) -- this mode's real samples show each day's own
-    date+time stacked, never collapsed.
+    date+time stacked, never collapsed. Each block's own "text" is still
+    rendered byte-verbatim -- only the grouping decision ignores punctuation,
+    never the output.
 
-    Grouping is done PER DISTINCT TEXT VALUE, not by walking the full list
-    and comparing only immediately-adjacent entries: a real working-groups
-    report lists several unrelated items per date section, so a recurring
-    item's next-day occurrence is essentially never adjacent to today's in
-    the flat chronological list -- other same-day items for other people/
-    orders sit between them. Every occurrence of a given exact text is
-    collected (preserving the chronological order `blocks` already has),
-    then that same-text subsequence alone is split into runs wherever two
-    consecutive occurrences aren't exactly one calendar day apart -- same
-    gap-breaks-a-run rule as merge.merge_consecutive_entries(), just
-    applied within one text's own occurrences instead of the raw list.
-    Two identical-text blocks on the very same date (two separate items
-    that day happen to read the same) never merge with each other either,
-    since a zero-day gap isn't a one-day gap.
+    Grouping is done PER DISTINCT NORMALIZED TEXT VALUE, not by walking the
+    full list and comparing only immediately-adjacent entries: a real
+    working-groups report lists several unrelated items per date section,
+    so a recurring item's next-day occurrence is essentially never adjacent
+    to today's in the flat chronological list -- other same-day items for
+    other people/orders sit between them. Every occurrence of a given
+    normalized text is collected (preserving the chronological order
+    `blocks` already has), then that same-text subsequence alone is split
+    into runs wherever two consecutive occurrences aren't exactly one
+    calendar day apart -- same gap-breaks-a-run rule as
+    merge.merge_consecutive_entries(), just applied within one text's own
+    occurrences instead of the raw list. Two identical-text blocks on the
+    very same date (two separate items that day happen to read the same)
+    never merge with each other either, since a zero-day gap isn't a
+    one-day gap.
 
     Kept as a separate function from merge.merge_consecutive_entries()
     rather than generalizing that one since the two produce genuinely
@@ -167,7 +173,7 @@ def group_consecutive_identical_blocks(blocks):
 
     by_text = {}
     for block in blocks:
-        by_text.setdefault(block["text"], []).append(block)
+        by_text.setdefault(_normalize_for_grouping(block["text"]), []).append(block)
 
     groups = []
     for same_text_blocks in by_text.values():
@@ -182,6 +188,30 @@ def group_consecutive_identical_blocks(blocks):
 
     groups.sort(key=lambda group: group[0]["date"])
     return groups
+
+
+# Used only to build the grouping key in group_consecutive_identical_blocks()
+# -- never applied to a block's actual rendered "text", which always stays
+# byte-verbatim per CLAUDE.md's verbatim rule. Covers the punctuation marks
+# actually seen varying between otherwise-identical recurring items (period/
+# comma/semicolon/colon, both dash styles, both quote styles).
+_GROUPING_PUNCTUATION_CHARS = ".,;:!?()\"'«»-–—"
+_GROUPING_PUNCTUATION_TABLE = str.maketrans("", "", _GROUPING_PUNCTUATION_CHARS)
+
+
+def _normalize_for_grouping(text):
+    """Comparison key for group_consecutive_identical_blocks(): strips
+    punctuation marks and collapses the whitespace that stripping them can
+    leave behind, so two blocks whose text differs only in punctuation
+    (e.g. one day's item ends in ';', another's in '.', or a comma where
+    another has a semicolon) are still recognized as the same recurring
+    item. Comparison-only -- each block keeps its own untouched text for
+    rendering.
+    @param {str} text
+    @returns {str}
+    """
+    stripped = text.translate(_GROUPING_PUNCTUATION_TABLE)
+    return re.sub(r"\s+", " ", stripped).strip()
 
 
 def union_order_ids(order_id_lists):

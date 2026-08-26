@@ -96,8 +96,9 @@ def _dedupe_output_path(path, used_paths):
 
 def generate_working_groups(docx_path, year_override=None):
     """Entry point for --working-groups mode: one extract .docx per run of
-    chronologically-consecutive reporting blocks that share byte-identical
-    text (a recurring item, only date/time differing) found in a
+    chronologically-consecutive reporting blocks whose text matches once
+    punctuation marks are ignored (a recurring item, only date/time --
+    and sometimes incidental punctuation -- differing) found in a
     working-groups report, instead of the usual one-per-person-across-
     many-days extract. See working_groups.parse_working_group_blocks() for
     how blocks are found and working_groups.group_consecutive_identical_blocks()
