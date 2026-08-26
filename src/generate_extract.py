@@ -49,14 +49,14 @@ def load_people(argv):
     @returns {list[str]}
     """
     if not argv:
-        print("Використання: ./run.sh <ім'я> [<ім'я> ...] | <names.txt>")
+        print("Usage: ./run.sh <name> [<name> ...] | <names.txt>")
         sys.exit(1)
 
     if len(argv) == 1 and os.path.isfile(argv[0]):
         if argv[0].lower().endswith((".doc", ".docx")):
             print(
-                f"«{argv[0]}» — це .docx файл, не список імен. Якщо це звіт "
-                f"«РОБОЧІ ГРУПИ», використайте:\n"
+                f"{argv[0]!r} is a .docx file, not a name list. If it's a "
+                f"\"РОБОЧІ ГРУПИ\" report, use:\n"
                 f"  ./run.sh --working-groups {argv[0]!r}"
             )
             sys.exit(1)
@@ -64,10 +64,10 @@ def load_people(argv):
             with open(argv[0], encoding="utf-8") as f:
                 people = [line.strip() for line in f if line.strip()]
         except UnicodeDecodeError:
-            print(f"{argv[0]} не є текстовим файлом у кодуванні UTF-8 зі списком імен.")
+            print(f"{argv[0]} is not a UTF-8 text file with a name list.")
             sys.exit(1)
         if not people:
-            print(f"{argv[0]} не містить жодного імені.")
+            print(f"{argv[0]} contains no names.")
             sys.exit(1)
         return people
 
@@ -90,7 +90,7 @@ def _dedupe_output_path(path, used_paths):
     while f"{base} ({n}){ext}" in used_paths:
         n += 1
     deduped = f"{base} ({n}){ext}"
-    print(f"  Попередження: файл-дублікат назви, перейменовано в {deduped}")
+    print(f"  Warning: duplicate filename, renamed to {deduped}")
     return deduped
 
 
@@ -110,24 +110,24 @@ def generate_working_groups(docx_path, year_override=None):
         processed in January).
     """
     if not os.path.isfile(docx_path):
-        print(f"Файл не знайдено: {docx_path}")
+        print(f"File not found: {docx_path}")
         sys.exit(1)
     if not docx_path.lower().endswith((".doc", ".docx")):
-        print(f"Очікується .doc або .docx файл: {docx_path}")
+        print(f"Expected a .doc or .docx file: {docx_path}")
         sys.exit(1)
     with open(docx_path, "rb") as f:
         magic = f.read(4)
     if magic != b"PK\x03\x04":
         print(
-            f"«{os.path.basename(docx_path)}» — це застарілий бінарний .doc "
-            f"(не .docx), який не підтримується. Збережіть файл як .docx "
-            f"(Word/LibreOffice: «Зберегти копію» → .docx) і спробуйте ще раз."
+            f"{os.path.basename(docx_path)!r} is a legacy binary .doc (not "
+            f".docx), which is not supported. Save the file as .docx "
+            f"(Word/LibreOffice: \"Save a Copy\" → .docx) and try again."
         )
         sys.exit(1)
 
     blocks = parse_working_group_blocks(docx_path, year_override)
     if not blocks:
-        print(f"У {docx_path} не знайдено жодного блоку.")
+        print(f"No blocks found in {docx_path}.")
         return
     blocks.sort(key=lambda b: b["date"])
 
@@ -168,9 +168,9 @@ def generate_working_groups(docx_path, year_override=None):
         used_paths.add(output_path)
 
         render_extract(entries, TEMPLATE_PATH, output_path)
-        print(f"  >>> Створено: {output_path}  ({len(group)} днів)")
+        print(f"  >>> Created: {output_path}")
 
-    print(f"Разом: {len(groups)} файлів з {len(blocks)} блоків.")
+    print(f"Total: {len(groups)} files from {len(blocks)} blocks.")
 
 
 def main():
@@ -183,11 +183,11 @@ def main():
             try:
                 year_override = int(rest[idx + 1])
             except (IndexError, ValueError):
-                print("Використання: ./run.sh --working-groups <файл.docx> [--year YYYY]")
+                print("Usage: ./run.sh --working-groups <file.docx> [--year YYYY]")
                 sys.exit(1)
             del rest[idx:idx + 2]
         if len(rest) != 1:
-            print("Використання: ./run.sh --working-groups <файл.docx> [--year YYYY]")
+            print("Usage: ./run.sh --working-groups <file.docx> [--year YYYY]")
             sys.exit(1)
         generate_working_groups(rest[0], year_override)
         return
@@ -199,12 +199,12 @@ def main():
         try:
             extract_date_from_filename(docx_path)
         except ValueError:
-            print(f"Пропущено (немає дати в назві файлу): {os.path.basename(docx_path)}")
+            print(f"Skipped (no date in filename): {os.path.basename(docx_path)}")
             continue
         docx_paths.append(docx_path)
     docx_paths.sort(key=extract_date_from_filename)
     if not docx_paths:
-        print(f"У {JOURNAL_DIR}/ немає жодного .docx файлу.")
+        print(f"No .docx files found in {JOURNAL_DIR}/.")
         return
 
     # each day's paragraphs/time boundaries only depend on the file, not
@@ -213,7 +213,7 @@ def main():
     for docx_path in docx_paths:
         columns = load_paragraph_columns(docx_path)
         if not columns:
-            print(f"Пропущено (немає таблиці в файлі): {os.path.basename(docx_path)}")
+            print(f"Skipped (no table in file): {os.path.basename(docx_path)}")
             continue
         all_paragraphs = load_paragraphs(docx_path)
         day_date = extract_date_from_filename(docx_path)
@@ -231,12 +231,12 @@ def main():
 
     for person in people:
         print("=" * 70)
-        print("Особа:", person)
+        print("Person:", person)
 
         try:
             full_name, date_from, date_to = parse_person_spec(person)
         except ValueError as e:
-            print(f"  >>> Пропущено особу «{person}»: {e}")
+            print(f"  >>> Skipped person {person!r}: {e}")
             continue
 
         if date_from is None:
@@ -248,8 +248,8 @@ def main():
             while missing_date <= date_to:
                 if missing_date not in covered_dates:
                     print(
-                        f"    [{missing_date.isoformat()}] ЖУРНАЛ ВІДСУТНІЙ — "
-                        f"файл за цю дату не знайдено в {JOURNAL_DIR}/"
+                        f"    [{missing_date.isoformat()}] MISSING JOURNAL — "
+                        f"no file found for this date in {JOURNAL_DIR}/"
                     )
                 missing_date += timedelta(days=1)
 
@@ -261,16 +261,16 @@ def main():
             if outcome["status"] == "found":
                 entries.append(outcome["result"])
             else:
-                print(f"    [{day['filename']}] пропущено: {outcome['note']}")
+                print(f"    [{day['filename']}] skipped: {outcome['note']}")
 
         if not entries:
-            print("  >>> Жодного дня не знайдено для цієї особи — .docx не створено.")
+            print("  >>> No days found for this person — .docx not created.")
             continue
 
         surname = extract_surname(full_name)
         output_path = os.path.join(OUTPUT_DIR, f"Витяг_{surname}_{issue_date.isoformat()}.docx")
         render_extract(merge_consecutive_entries(entries), TEMPLATE_PATH, output_path)
-        print(f"  >>> Створено: {output_path}  ({len(entries)} з {len(relevant_days)} днів)")
+        print(f"  >>> Created: {output_path}")
 
 
 if __name__ == "__main__":

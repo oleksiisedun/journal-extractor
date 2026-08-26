@@ -448,9 +448,11 @@ the filename-separator variants (see `journals/`, gitignored):
   get their own module rather than growing an existing one, consistent
   with how rendering got its own (`render.py`) instead of being bolted
   onto `assembly.py`.
-- Code comments (and docstrings) are English — the actual document
-  text/data (journal source content, test names, runtime console
-  output) stays Ukrainian since it's being extracted verbatim, not
+- Code comments (and docstrings) are English. Console log/status/error
+  messages (`print()` text, exception messages, `pipeline.py`'s `"note"`
+  strings) are also English — only the actual document text/data (journal
+  source content flowing into rendered output, person names, test
+  fixture names) stays Ukrainian since it's being extracted verbatim, not
   translated.
 - Every new failure mode found through testing should get: (1) a guardrail
   that fails loudly (never silently produces a degraded result), and (2)

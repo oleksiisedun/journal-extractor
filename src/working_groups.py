@@ -100,7 +100,7 @@ def parse_working_group_blocks(docx_path, year_override=None):
 
         item_match = ITEM_START_PATTERN.match(text)
         if not item_match:
-            print(f"  Незрозумілий абзац, пропущено: {stripped[:100]!r}")
+            print(f"  Unrecognized paragraph, skipped: {stripped[:100]!r}")
             continue
 
         if item_match.group("day"):
@@ -113,7 +113,7 @@ def parse_working_group_blocks(docx_path, year_override=None):
             year = year_override if year_override is not None else date.today().year
             block_date = date(year, month, day)
         else:
-            print(f"  Абзац поза межами будь-якої дати, пропущено: {stripped[:100]!r}")
+            print(f"  Paragraph outside any date section, skipped: {stripped[:100]!r}")
             continue
 
         item_text = text[item_match.end():].lstrip(" \t")

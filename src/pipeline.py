@@ -28,7 +28,7 @@ def resolve_day_fragment(all_paragraphs, day_date, time_boundaries, full_name):
        "pointer": dict}
       {"status": "not_found", "result": None, "note": str, "pointer": None}
       {"status": "rejected", "result": None, "note": str, "pointer": dict}  # guardrail
-    `note` is a human-readable Ukrainian explanation, suitable for printing
+    `note` is a human-readable explanation, suitable for printing
     or logging. `pointer` is build_pointer()'s raw dict (when resolution
     got that far) — kept
     around for the same real-file debugging workflow described in
@@ -41,7 +41,7 @@ def resolve_day_fragment(all_paragraphs, day_date, time_boundaries, full_name):
     if not windows:
         # the surname isn't in this day's text at all
         return {"status": "not_found", "result": None, "pointer": None,
-                "note": "Прізвище відсутнє в тексті дня. found=false"}
+                "note": "surname not in this day's text"}
 
     # narrow by FULL name (not surname alone) - if this unambiguously
     # narrows to a single window, that window can't mix in another
@@ -53,14 +53,14 @@ def resolve_day_fragment(all_paragraphs, day_date, time_boundaries, full_name):
         # though the surname is -- fail closed rather than guess from
         # weaker (surname-only) context
         return {"status": "not_found", "result": None, "pointer": None,
-                "note": "ПОВНЕ ПІБ не знайдено дослівно в тексті дня. found=false"}
+                "note": "full name not found verbatim in this day's text"}
     elif len(narrowed) == 1:
         windows_to_use = narrowed
-        narrowing_note = "однозначно звужено до 1 вікна за повним ПІБ"
+        narrowing_note = "unambiguously narrowed to 1 window by full name"
     else:
         windows_to_use = [select_ambiguous_window(narrowed, FULL_NAME_AMBIGUITY_STRATEGY)]
-        narrowing_note = (f"увага: повне ПІБ дослівно зустрічається у {len(narrowed)} різних місцях - "
-                           f"справжня неоднозначність, беремо {FULL_NAME_AMBIGUITY_STRATEGY} входження")
+        narrowing_note = (f"warning: full name occurs verbatim in {len(narrowed)} different places - "
+                           f"genuine ambiguity, taking the {FULL_NAME_AMBIGUITY_STRATEGY} occurrence")
 
     # target_paragraph_index is find_full_name_paragraph()'s result;
     # context_paragraph_indices is the governing order + label header,
@@ -70,7 +70,7 @@ def resolve_day_fragment(all_paragraphs, day_date, time_boundaries, full_name):
 
     if not pointer.get("found"):
         return {"status": "not_found", "result": None, "pointer": pointer,
-                "note": "Не знайдено в цьому дні (перевір вручну — гепи не пропускаємо мовчки)"}
+                "note": "not found this day (check manually — gaps are never silently skipped)"}
 
     try:
         result = assemble_fragment(
@@ -79,7 +79,7 @@ def resolve_day_fragment(all_paragraphs, day_date, time_boundaries, full_name):
         )
     except ValueError as e:
         return {"status": "rejected", "result": None, "pointer": pointer,
-                "note": f"ПОТРЕБУЄ РУЧНОЇ ПЕРЕВІРКИ — гвардрейл відхилив результат:\n{e}"}
+                "note": f"NEEDS MANUAL REVIEW — guardrail rejected the result:\n{e}"}
 
     return {"status": "found", "result": result, "pointer": pointer,
             "note": narrowing_note}

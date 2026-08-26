@@ -25,7 +25,7 @@ def _parse_ddmmyyyy(token):
     try:
         return date(year, month, day)
     except ValueError as e:
-        raise ValueError(f"Некоректна дата {token!r}: {e}") from e
+        raise ValueError(f"Invalid date {token!r}: {e}") from e
 
 
 def parse_person_spec(raw):
@@ -48,8 +48,8 @@ def parse_person_spec(raw):
 
     if date_from > date_to:
         raise ValueError(
-            f"Початкова дата {date_from.isoformat()} пізніша за кінцеву "
-            f"{date_to.isoformat()} у: {raw!r}"
+            f"Start date {date_from.isoformat()} is after end date "
+            f"{date_to.isoformat()} in: {raw!r}"
         )
 
     return full_name, date_from, date_to
