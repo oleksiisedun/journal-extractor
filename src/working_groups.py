@@ -129,39 +129,36 @@ def parse_working_group_blocks(docx_path, year_override=None):
 
 
 def group_consecutive_identical_blocks(blocks):
-    """Partitions `blocks` (must already be sorted chronologically by
-    "date", and already carrying each block's final, fully-processed
-    "text") into runs of chronologically-consecutive blocks whose "text"
-    matches once punctuation marks are ignored (`_normalize_for_grouping()`)
-    -- the recurring-item case where only the date/time (and sometimes
-    incidental punctuation, e.g. a trailing '.' vs ';', or a ',' vs ';'
-    mid-sentence) changes day to day. Unlike merge.merge_consecutive_entries(),
-    every block stays its own entry within a run (no fold into a single "з
-    ... по ..." line) -- this mode's real samples show each day's own
-    date+time stacked, never collapsed. Each block's own "text" is still
-    rendered byte-verbatim -- only the grouping decision ignores punctuation,
-    never the output.
+    """Groups `blocks` (must already be sorted chronologically by "date",
+    and already carrying each block's final, fully-processed "text") into
+    one group per distinct normalized text value (`_normalize_for_grouping()`
+    ignores punctuation, e.g. a trailing '.' vs ';', or a ',' vs ';'
+    mid-sentence) -- the recurring-item case where only the date/time
+    changes day to day. Every occurrence of a given normalized text lands
+    in the same group regardless of calendar gaps between occurrences (e.g.
+    someone else covers the same duty for a stretch of days, then the
+    original person resumes) -- unlike merge.merge_consecutive_entries(),
+    this never folds a run into a single "з ... по ..." line that would
+    imply continuous presence; each block stays its own dated entry within
+    the group (see generate_extract.py's generate_working_groups()), so
+    grouping across a gap doesn't misrepresent anything -- the gap dates
+    simply have no entry. Each block's own "text" is still rendered
+    byte-verbatim -- only the grouping decision ignores punctuation, never
+    the output. `build_working_group_filename()` uses `compute_date_ranges()`
+    to reflect the group's real (possibly disjoint) date spans in its
+    output filename.
 
     Grouping is done PER DISTINCT NORMALIZED TEXT VALUE, not by walking the
     full list and comparing only immediately-adjacent entries: a real
     working-groups report lists several unrelated items per date section,
     so a recurring item's next-day occurrence is essentially never adjacent
     to today's in the flat chronological list -- other same-day items for
-    other people/orders sit between them. Every occurrence of a given
-    normalized text is collected (preserving the chronological order
-    `blocks` already has), then that same-text subsequence alone is split
-    into runs wherever two consecutive occurrences aren't exactly one
-    calendar day apart -- same gap-breaks-a-run rule as
-    merge.merge_consecutive_entries(), just applied within one text's own
-    occurrences instead of the raw list. Two identical-text blocks on the
-    very same date (two separate items that day happen to read the same)
-    never merge with each other either, since a zero-day gap isn't a
-    one-day gap.
+    other people/orders sit between them.
 
     Kept as a separate function from merge.merge_consecutive_entries()
     rather than generalizing that one since the two produce genuinely
-    different output shapes (fold-into-a-range vs. partition-into-still-
-    separate-entries).
+    different output shapes (fold-into-a-range vs. one-group-per-distinct-
+    text-with-every-occurrence-kept-separate).
 
     Returned groups are sorted by their earliest date, for a predictable,
     chronological order of output files.
@@ -175,19 +172,36 @@ def group_consecutive_identical_blocks(blocks):
     for block in blocks:
         by_text.setdefault(_normalize_for_grouping(block["text"]), []).append(block)
 
-    groups = []
-    for same_text_blocks in by_text.values():
-        current = [same_text_blocks[0]]
-        for block in same_text_blocks[1:]:
-            if block["date"] == current[-1]["date"] + timedelta(days=1):
-                current.append(block)
-            else:
-                groups.append(current)
-                current = [block]
-        groups.append(current)
-
+    groups = list(by_text.values())
     groups.sort(key=lambda group: group[0]["date"])
     return groups
+
+
+def compute_date_ranges(blocks):
+    """Partitions `blocks`' distinct dates into runs of chronologically-
+    consecutive calendar days, e.g. dates [02.07, 03.07, 05.07] (a gap at
+    04.07) become [(02.07, 03.07), (05.07, 05.07)]. Used to build a
+    grouped file's filename (`build_working_group_filename()`) so it
+    reflects the group's real, possibly-disjoint date spans rather than a
+    single "з ... по ..." that would misstate a continuous presence across
+    a gap group_consecutive_identical_blocks() no longer breaks on.
+    Duplicate dates (two same-text blocks on one day) collapse to one
+    calendar day and never split a range on their own, since a zero-day
+    gap isn't a real gap.
+    @param {list[dict]} blocks
+    @returns {list[tuple[datetime.date, datetime.date]]}
+    """
+    dates = sorted({block["date"] for block in blocks})
+    ranges = []
+    start = prev = dates[0]
+    for current in dates[1:]:
+        if current == prev + timedelta(days=1):
+            prev = current
+        else:
+            ranges.append((start, prev))
+            start = prev = current
+    ranges.append((start, prev))
+    return ranges
 
 
 # Used only to build the grouping key in group_consecutive_identical_blocks()
@@ -231,23 +245,39 @@ def union_order_ids(order_id_lists):
     return seen
 
 
-def build_working_group_filename(unit_prefix, date_from, date_to, order_ids):
-    """Output filename for one block or merged run of blocks, e.g. '3 боп
-    витяг жбд за 21.07.2026 БР2418.docx' for a single day, or '3 боп витяг
-    жбд з 06.06.2026 по 08.06.2026 БР1596.docx' for a merged run (`date_to`
-    > `date_from`) -- same "з ... по ..." phrasing render.py's
-    _format_date_lines() already uses for a merged multi-day {дата} entry.
-    Every distinct order id across the run is included, space-separated,
-    in first-appearance order -- no cap.
+def build_working_group_filename(unit_prefix, date_ranges, order_ids):
+    """Output filename for one group's blocks, e.g. '3 боп витяг жбд за
+    21.07.2026 БР2418.docx' for a single day, '3 боп витяг жбд з
+    06.06.2026 по 08.06.2026 БР1596.docx' for one contiguous run (same "з
+    ... по ..." phrasing render.py's _format_date_lines() already uses for
+    a merged multi-day {дата} entry), or, when the group's occurrences
+    aren't all contiguous (e.g. someone else covers the same duty for a
+    stretch of days in between), a space-separated list of each
+    contiguous span in compact 'DD.MM.YYYY-DD.MM.YYYY' form (a single day
+    within such a list renders as just 'DD.MM.YYYY', no repeated dash), so
+    the filename never implies a continuous presence the source doesn't
+    show, e.g. '3 боп витяг жбд 02.07.2026-05.07.2026 10.07.2026-11.07.2026
+    20.07.2026-31.07.2026 БР1927.docx'. Every distinct order id across the
+    group is included, space-separated, in first-appearance order -- no
+    cap.
     @param {str} unit_prefix
-    @param {datetime.date} date_from
-    @param {datetime.date} date_to
+    @param {list[tuple[datetime.date, datetime.date]]} date_ranges -- from
+        compute_date_ranges(), sorted chronologically, at least one entry
     @param {list[str]} order_ids
     @returns {str}
     """
-    if date_from == date_to:
-        date_part = f"за {date_from.strftime('%d.%m.%Y')}"
+    if len(date_ranges) == 1:
+        date_from, date_to = date_ranges[0]
+        if date_from == date_to:
+            date_part = f"за {date_from.strftime('%d.%m.%Y')}"
+        else:
+            date_part = f"з {date_from.strftime('%d.%m.%Y')} по {date_to.strftime('%d.%m.%Y')}"
     else:
-        date_part = f"з {date_from.strftime('%d.%m.%Y')} по {date_to.strftime('%d.%m.%Y')}"
+        date_part = " ".join(
+            date_from.strftime("%d.%m.%Y")
+            if date_from == date_to
+            else f"{date_from.strftime('%d.%m.%Y')}-{date_to.strftime('%d.%m.%Y')}"
+            for date_from, date_to in date_ranges
+        )
     order_part = " ".join(order_ids)
     return f"{unit_prefix} витяг жбд {date_part} {order_part}.docx"

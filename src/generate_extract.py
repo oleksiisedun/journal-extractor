@@ -31,6 +31,7 @@ from render import render_extract
 from time_extraction import assign_time_boundaries
 from working_groups import (
     build_working_group_filename,
+    compute_date_ranges,
     group_consecutive_identical_blocks,
     parse_working_group_blocks,
     union_order_ids,
@@ -163,7 +164,7 @@ def generate_working_groups(docx_path, year_override=None):
         order_ids = union_order_ids(b["order_ids"] for b in group)
 
         filename = build_working_group_filename(
-            WORKING_GROUP_UNIT_PREFIX, group[0]["date"], group[-1]["date"], order_ids
+            WORKING_GROUP_UNIT_PREFIX, compute_date_ranges(group), order_ids
         )
         output_path = _dedupe_output_path(os.path.join(OUTPUT_DIR, filename), used_paths)
         used_paths.add(output_path)
