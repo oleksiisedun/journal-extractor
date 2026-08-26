@@ -79,6 +79,14 @@ graph TD
   Fragment --> Merge["merge_consecutive_entries()\ncollapse consecutive days\nwith byte-identical text"]
   Merge --> Render["render_extract()\nfills templates/1.docx\n{дата}/{витяг} placeholders"]
   Render --> Output[(".docx"\nextract output)]
+
+  subgraph WorkingGroups["--working-groups mode — alternate entry path,\none extract per report item, not per person"]
+    WGDoc[(".docx"\nworking-groups report,\nflowing paragraphs, no table)] --> ParseBlocks["parse_working_group_blocks()\none block per reporting item"]
+    ParseBlocks --> WGStrip["strip_coordinates()\nstrip_location_labels()\n(same functions as above)"]
+    WGStrip --> WGFilename["build_working_group_filename()\nunit prefix + date + order ids"]
+  end
+
+  WGFilename -.->|same render_extract()\nas the main pipeline| Render
 ```
 
 ## Setup
@@ -138,10 +146,16 @@ Place daily `.docx` journal files in the `journals/` folder (or point
 `JOURNAL_DIR` in `config.py` at a different directory). The scripts pick
 up every `.docx` file found there, sorted chronologically by the date
 encoded in each filename. Sample extract documents go in `samples/`; the
-extract template goes in `templates/` (`TEMPLATE_PATH` in `config.py`).
+extract template goes in `templates/` (`TEMPLATE_PATH` in `config.py`,
+default `templates/1.docx`).
 `journals/` and `samples/` are gitignored — the source and sample content
 carries a restricted classification and must never be committed (as is
 every `*.docx` file anywhere in the repo, including generated output).
+That blanket `*.docx` gitignore rule also covers the template itself, so
+it isn't part of a fresh clone either — place your own `templates/1.docx`
+(the real extract template, carrying the `{дата}`/`{витяг}` placeholders
+described in `CLAUDE.md`) before running the generator, or `render.py`
+will fail to find it.
 
 ## Running
 
@@ -161,10 +175,15 @@ inline arguments or as a path to a newline-delimited `.txt` file:
 **Windows**: `run.sh` is a bash script and won't run directly in PowerShell or
 Command Prompt. Either run it through Git Bash (bundled with
 [Git for Windows](https://git-scm.com/download/win)) or WSL, or call the
-Python entry point it wraps directly:
+Python entry point it wraps directly — `cd` to the repo root first (unlike
+`run.sh`, the bare Python entry point doesn't do this for you, and
+`JOURNAL_DIR`/`TEMPLATE_PATH`/`OUTPUT_DIR` in `config.py` are relative
+paths resolved from the current directory):
 
 ```powershell
+cd path\to\journal-extractor
 python src\generate_extract.py "молодший сержант ПЕТРЕНКО Іван Миколайович"
+python src\generate_extract.py --working-groups "робочі групи ЛИПЕНЬ.docx"
 ```
 
 All CLI arguments and behavior are identical either way — `run.sh` only
@@ -203,6 +222,36 @@ an entirely unresolved time is simply left out of the rendered text.
 Everything here is regex/string logic over an already-parsed paragraph
 list, so it runs in well under a second per person/day — no particular
 hardware requirements.
+
+**`--working-groups` mode** generates extracts from a different kind of
+source document — a month-spanning "РОБОЧІ ГРУПИ" (working groups) report
+written as flowing body paragraphs (no table, unlike the daily journals).
+Instead of one extract per person across many days, this mode writes one
+extract `.docx` per reporting item ("block") found in the report:
+
+```bash
+./run.sh --working-groups "робочі групи ЛИПЕНЬ.docx"
+```
+
+Each block's text is used verbatim (the same coordinate/location
+stripping and trailing `;` → `.` fix still apply), dated by its own
+inline `DD.MM.YYYY` when the item carries one, or else the nearest
+preceding date-header paired with the current year. Output filenames are
+built from `WORKING_GROUP_UNIT_PREFIX` (`config.py`, default `"3 боп"`),
+the block's date, and every distinct order number referenced in it, e.g.:
+
+```
+output/3 боп витяг жбд за 21.07.2026 БР2418.docx
+```
+
+Two blocks that land on the exact same date + order-id set get a
+`" (2)"`, `" (3)"`, ... suffix instead of silently overwriting each
+other. The input file must be a real `.docx` — a legacy binary `.doc`
+(detected by file signature, not just the extension) is rejected with a
+message to re-save it first. A paragraph that's neither blank, a date
+header, nor a recognized item (see `working_groups.py`'s
+`ITEM_START_PATTERN`) is skipped with a loud warning rather than aborting
+the whole file.
 
 ## Further reading
 

@@ -247,6 +247,36 @@ run via `run.sh`)
     as one `"з ... по ..."` line and a single-day entry as its usual
     date-then-time pair.
 
+## `--working-groups` mode (alternate entry path)
+
+`generate_extract.py --working-groups <file.docx>` is a structurally
+different mode from the per-person pipeline above: instead of one extract
+per *person* across many days, it produces one extract per *reporting
+item ("block")* found in a single month-spanning "РОБОЧІ ГРУПИ" (working
+groups) report — a `.docx` written as flowing body paragraphs (no table,
+unlike the daily journals).
+
+`working_groups.py`'s `parse_working_group_blocks()` walks the
+document's paragraphs deterministically: a `DD.MM` line is a date-header
+that supplies the fallback date for items that follow; each reporting
+item is recognized by `ITEM_START_PATTERN` (an optional leading
+`DD.MM.YYYY` override, then an `HH:MM-HH:MM`-shaped time range) and
+carries its own text verbatim plus any order numbers found via
+`WORKING_GROUP_ORDER_REF_PATTERN` (a working-groups-specific pattern —
+deliberately not `patterns.ORDER_REF_PATTERN` — tolerant of `БР`-prefixed
+and space-variant order tokens). A paragraph matching neither shape is
+skipped with a loud warning, never silently dropped.
+
+`generate_extract.py`'s `generate_working_groups()` applies the same
+coordinate/location stripping and trailing `;` → `.` fix as the main
+pipeline, then renders each block through the same `render_extract()`
+template path. Output filenames come from `build_working_group_filename()`
+(`WORKING_GROUP_UNIT_PREFIX` in `config.py`, e.g. `"3 боп"`, + date +
+every distinct order id) — `_dedupe_output_path()` appends `" (2)"`,
+`" (3)"`, ... if two blocks would otherwise collide on the same filename.
+Legacy binary `.doc` input is rejected up front (checked by file
+signature, not extension).
+
 ## Time-of-day extraction
 
 Real files use one of two formats for encoding time — never mixed within a
@@ -366,7 +396,11 @@ the filename-separator variants (see `journals/`, gitignored):
   `text_wrap.py` (`estimate_wrapped_line_count()` — real glyph-width-based
   word-wrap simulation used only to keep `render.py`'s `{дата}`/`{витяг}`
   columns aligned; kept separate since it's pure text-measurement geometry,
-  unrelated to `render.py`'s template/XML orchestration). One entry
+  unrelated to `render.py`'s template/XML orchestration), and
+  `working_groups.py` (`parse_working_group_blocks()`,
+  `build_working_group_filename()` — the alternate `--working-groups`
+  entry path, see above; kept separate since it parses a structurally
+  different source document, not the daily per-table journals). One entry
   point, `generate_extract.py` — run via `run.sh` at the repo root, which
   just forwards its CLI arguments through — wires the modules together,
   resolves each requested person's `"found"` days across `journals/`
