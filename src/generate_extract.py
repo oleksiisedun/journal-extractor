@@ -53,8 +53,19 @@ def load_people(argv):
         sys.exit(1)
 
     if len(argv) == 1 and os.path.isfile(argv[0]):
-        with open(argv[0], encoding="utf-8") as f:
-            people = [line.strip() for line in f if line.strip()]
+        if argv[0].lower().endswith((".doc", ".docx")):
+            print(
+                f"«{argv[0]}» — це .docx файл, не список імен. Якщо це звіт "
+                f"«РОБОЧІ ГРУПИ», використайте:\n"
+                f"  ./run.sh --working-groups {argv[0]!r}"
+            )
+            sys.exit(1)
+        try:
+            with open(argv[0], encoding="utf-8") as f:
+                people = [line.strip() for line in f if line.strip()]
+        except UnicodeDecodeError:
+            print(f"{argv[0]} не є текстовим файлом у кодуванні UTF-8 зі списком імен.")
+            sys.exit(1)
         if not people:
             print(f"{argv[0]} не містить жодного імені.")
             sys.exit(1)
