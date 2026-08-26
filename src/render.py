@@ -337,6 +337,13 @@ def render_extract(entries, template_path, output_path):
     if not entries:
         raise ValueError("No fragments to render — entries is empty.")
 
+    if not os.path.isfile(template_path):
+        raise FileNotFoundError(
+            f"Extract template not found at {template_path!r}. Expected the "
+            "template .docx configured as TEMPLATE_PATH in src/config.py — "
+            "check the path is correct and the file exists."
+        )
+
     document = docx.Document(template_path)
 
     date_cell, date_paragraph = _find_placeholder_cell_and_paragraph(document, "{дата}")
