@@ -29,7 +29,12 @@ from pipeline import resolve_day_fragment
 from prefilter import extract_surname
 from render import render_extract
 from time_extraction import assign_time_boundaries
-from working_groups import build_working_group_filename, parse_working_group_blocks
+from working_groups import (
+    build_working_group_filename,
+    group_consecutive_identical_blocks,
+    parse_working_group_blocks,
+    union_order_ids,
+)
 
 
 def load_people(argv):
@@ -78,12 +83,20 @@ def _dedupe_output_path(path, used_paths):
     return deduped
 
 
-def generate_working_groups(docx_path):
-    """Entry point for --working-groups mode: one extract .docx per
-    reporting item ("block") found in a working-groups report, instead of
-    the usual one-per-person-across-many-days extract. See
-    working_groups.parse_working_group_blocks() for how blocks are found.
+def generate_working_groups(docx_path, year_override=None):
+    """Entry point for --working-groups mode: one extract .docx per run of
+    chronologically-consecutive reporting blocks that share byte-identical
+    text (a recurring item, only date/time differing) found in a
+    working-groups report, instead of the usual one-per-person-across-
+    many-days extract. See working_groups.parse_working_group_blocks() for
+    how blocks are found and working_groups.group_consecutive_identical_blocks()
+    for how they're grouped.
     @param {str} docx_path
+    @param {int|None} year_override -- overrides the fallback year used for
+        blocks whose date comes from a bare DD.MM section header (see
+        parse_working_group_blocks()); pass when the report doesn't cover
+        the year the script happens to run in (e.g. a December report
+        processed in January).
     """
     if not os.path.isfile(docx_path):
         print(f"Файл не знайдено: {docx_path}")
@@ -101,47 +114,71 @@ def generate_working_groups(docx_path):
         )
         sys.exit(1)
 
-    blocks = parse_working_group_blocks(docx_path)
+    blocks = parse_working_group_blocks(docx_path, year_override)
     if not blocks:
         print(f"У {docx_path} не знайдено жодного блоку.")
         return
+    blocks.sort(key=lambda b: b["date"])
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    used_paths = set()
-    created = 0
-
+    # process each block's text fully (coordinate/location stripping, the
+    # trailing punctuation fix) BEFORE grouping, so the equality check in
+    # group_consecutive_identical_blocks() compares final rendered text,
+    # not raw source text that could still differ (or coincidentally
+    # match) before those strips are applied.
+    processed_blocks = []
     for block in blocks:
         text = strip_location_labels(strip_coordinates(block["text"])).rstrip()
         if text.endswith(";"):
             text = text[:-1] + "."
+        processed_blocks.append({**block, "text": text})
+
+    groups = group_consecutive_identical_blocks(processed_blocks)
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    used_paths = set()
+
+    for group in groups:
+        entries = [
+            {
+                "text": b["text"],
+                "date_from": b["date"],
+                "date_to": b["date"],
+                "time": b["time"],
+                "time_confidence": "uncertain",
+            }
+            for b in group
+        ]
+        order_ids = union_order_ids(b["order_ids"] for b in group)
 
         filename = build_working_group_filename(
-            WORKING_GROUP_UNIT_PREFIX, block["date"], block["order_ids"]
+            WORKING_GROUP_UNIT_PREFIX, group[0]["date"], group[-1]["date"], order_ids
         )
         output_path = _dedupe_output_path(os.path.join(OUTPUT_DIR, filename), used_paths)
         used_paths.add(output_path)
 
-        entry = {
-            "text": text,
-            "date_from": block["date"],
-            "date_to": block["date"],
-            "time": None,
-            "time_confidence": "uncertain",
-        }
-        render_extract([entry], TEMPLATE_PATH, output_path)
-        created += 1
-        print(f"  >>> Створено: {output_path}")
+        render_extract(entries, TEMPLATE_PATH, output_path)
+        print(f"  >>> Створено: {output_path}  ({len(group)} днів)")
 
-    print(f"Разом: {created} з {len(blocks)} блоків.")
+    print(f"Разом: {len(groups)} файлів з {len(blocks)} блоків.")
 
 
 def main():
     argv = sys.argv[1:]
     if argv[:1] == ["--working-groups"]:
-        if len(argv) != 2:
-            print("Використання: ./run.sh --working-groups <файл.docx>")
+        rest = argv[1:]
+        year_override = None
+        if "--year" in rest:
+            idx = rest.index("--year")
+            try:
+                year_override = int(rest[idx + 1])
+            except (IndexError, ValueError):
+                print("Використання: ./run.sh --working-groups <файл.docx> [--year YYYY]")
+                sys.exit(1)
+            del rest[idx:idx + 2]
+        if len(rest) != 1:
+            print("Використання: ./run.sh --working-groups <файл.docx> [--year YYYY]")
             sys.exit(1)
-        generate_working_groups(argv[1])
+        generate_working_groups(rest[0], year_override)
         return
 
     people = load_people(sys.argv[1:])

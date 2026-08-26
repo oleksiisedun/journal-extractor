@@ -249,33 +249,70 @@ run via `run.sh`)
 
 ## `--working-groups` mode (alternate entry path)
 
-`generate_extract.py --working-groups <file.docx>` is a structurally
-different mode from the per-person pipeline above: instead of one extract
-per *person* across many days, it produces one extract per *reporting
-item ("block")* found in a single month-spanning "РОБОЧІ ГРУПИ" (working
-groups) report — a `.docx` written as flowing body paragraphs (no table,
-unlike the daily journals).
+`generate_extract.py --working-groups <file.docx> [--year YYYY]` is a
+structurally different mode from the per-person pipeline above: instead of
+one extract per *person* across many days, it produces one extract per
+*run of chronologically-consecutive reporting items ("blocks") that share
+byte-identical text* found in a single month-spanning "РОБОЧІ ГРУПИ"
+(working groups) report — a `.docx` written as flowing body paragraphs (no
+table, unlike the daily journals). A recurring item (same governing order,
+same body text) reported day after day collapses into one file with each
+day's date+time stacked, instead of one near-duplicate file per day.
 
 `working_groups.py`'s `parse_working_group_blocks()` walks the
 document's paragraphs deterministically: a `DD.MM` line is a date-header
 that supplies the fallback date for items that follow; each reporting
 item is recognized by `ITEM_START_PATTERN` (an optional leading
-`DD.MM.YYYY` override, then an `HH:MM-HH:MM`-shaped time range) and
-carries its own text verbatim plus any order numbers found via
+`DD.MM.YYYY` override, then an `HH:MM-HH:MM`-shaped time range, both as
+named regex groups) and carries its remaining text verbatim (the matched
+date-override/time-range prefix is split off into the block's own `"time"`
+field rather than left inline — it's structural item metadata, not
+narrative content, and leaving it inline would (a) defeat byte-identical
+text comparison between otherwise-identical days and (b) leave the
+rendered `{дата}` column with nothing to show, since `time` used to be
+discarded entirely) plus any order numbers found via
 `WORKING_GROUP_ORDER_REF_PATTERN` (a working-groups-specific pattern —
 deliberately not `patterns.ORDER_REF_PATTERN` — tolerant of `БР`-prefixed
 and space-variant order tokens). A paragraph matching neither shape is
 skipped with a loud warning, never silently dropped.
 
-`generate_extract.py`'s `generate_working_groups()` applies the same
-coordinate/location stripping and trailing `;` → `.` fix as the main
-pipeline, then renders each block through the same `render_extract()`
-template path. Output filenames come from `build_working_group_filename()`
-(`WORKING_GROUP_UNIT_PREFIX` in `config.py`, e.g. `"3 боп"`, + date +
-every distinct order id) — `_dedupe_output_path()` appends `" (2)"`,
-`" (3)"`, ... if two blocks would otherwise collide on the same filename.
-Legacy binary `.doc` input is rejected up front (checked by file
-signature, not extension).
+A header-derived date (no inline `DD.MM.YYYY` on the item itself) pairs
+the header's day/month with `--year` if given, else the year the script
+happens to be *run* in (`date.today().year`) — a fallback that's only
+correct when running in the same year the report covers. **Known
+limitation, left unfixed by design**: a report whose own date-header
+sections straddle a year boundary (e.g. late December into early January
+within one file) can't be represented by one flat `--year` value; this
+wasn't judged worth solving since real working-groups reports each cover a
+single calendar month and so never actually straddle a year boundary
+themselves — `--year` only exists for the case where the report covers one
+year but the script runs in a different one (e.g. processing a December
+report in January).
+
+`generate_extract.py`'s `generate_working_groups()` sorts blocks
+chronologically, applies the same coordinate/location stripping and
+trailing `;` → `.` fix as the main pipeline to each block's text, then
+groups them via `working_groups.py`'s `group_consecutive_identical_blocks()`
+— mirrors `merge.merge_consecutive_entries()`'s adjacency-walk (byte-
+identical text AND exactly-consecutive calendar dates, a gap always breaks
+a run), but *partitions* rather than *folds*: every block stays its own
+entry within a run instead of collapsing into a single "з ... по ..."
+line, since real working-groups extracts show each day's own date+time
+stacked, never collapsed — kept as a separate function from
+`merge_consecutive_entries()` rather than adding a mode flag to it, since
+the two output shapes are different enough that sharing one function would
+trade a clear ~15-line function for a branchy one. Each group is rendered
+through the same multi-entry `render_extract()` template path the
+per-person pipeline already uses to stack a person's multiple found days
+in one document — no changes needed there. Output filenames come from
+`build_working_group_filename()` (`WORKING_GROUP_UNIT_PREFIX` in
+`config.py`, e.g. `"3 боп"`, + the group's date or, for a multi-day group,
+a `"з ... по ..."` range in the same phrasing `render.py`'s
+`_format_date_lines()` uses + every distinct order id across the group,
+unioned via `union_order_ids()` in first-appearance order) —
+`_dedupe_output_path()` appends `" (2)"`, `" (3)"`, ... if two groups would
+otherwise collide on the same filename. Legacy binary `.doc` input is
+rejected up front (checked by file signature, not extension).
 
 ## Time-of-day extraction
 
@@ -398,9 +435,10 @@ the filename-separator variants (see `journals/`, gitignored):
   columns aligned; kept separate since it's pure text-measurement geometry,
   unrelated to `render.py`'s template/XML orchestration), and
   `working_groups.py` (`parse_working_group_blocks()`,
-  `build_working_group_filename()` — the alternate `--working-groups`
-  entry path, see above; kept separate since it parses a structurally
-  different source document, not the daily per-table journals). One entry
+  `group_consecutive_identical_blocks()`, `build_working_group_filename()`
+  — the alternate `--working-groups` entry path, see above; kept separate
+  since it parses a structurally different source document, not the daily
+  per-table journals). One entry
   point, `generate_extract.py` — run via `run.sh` at the repo root, which
   just forwards its CLI arguments through — wires the modules together,
   resolves each requested person's `"found"` days across `journals/`

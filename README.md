@@ -80,10 +80,11 @@ graph TD
   Merge --> Render["render_extract()\nfills templates/1.docx\n{дата}/{витяг} placeholders"]
   Render --> Output[(".docx"\nextract output)]
 
-  subgraph WorkingGroups["--working-groups mode — alternate entry path,\none extract per report item, not per person"]
-    WGDoc[(".docx"\nworking-groups report,\nflowing paragraphs, no table)] --> ParseBlocks["parse_working_group_blocks()\none block per reporting item"]
+  subgraph WorkingGroups["--working-groups mode — alternate entry path,\none extract per run of identical report items, not per person"]
+    WGDoc[(".docx"\nworking-groups report,\nflowing paragraphs, no table)] --> ParseBlocks["parse_working_group_blocks()\none block per reporting item,\ntime split out of text"]
     ParseBlocks --> WGStrip["strip_coordinates()\nstrip_location_labels()\n(same functions as above)"]
-    WGStrip --> WGFilename["build_working_group_filename()\nunit prefix + date + order ids"]
+    WGStrip --> WGGroup["group_consecutive_identical_blocks()\nstack consecutive days\nwith byte-identical text"]
+    WGGroup --> WGFilename["build_working_group_filename()\nunit prefix + date/date-range + order ids"]
   end
 
   WGFilename -.->|same render_extract()\nas the main pipeline| Render
@@ -227,24 +228,38 @@ hardware requirements.
 source document — a month-spanning "РОБОЧІ ГРУПИ" (working groups) report
 written as flowing body paragraphs (no table, unlike the daily journals).
 Instead of one extract per person across many days, this mode writes one
-extract `.docx` per reporting item ("block") found in the report:
+extract `.docx` per run of chronologically-consecutive reporting items
+("blocks") that share byte-identical text — a recurring item where only
+the date/time changes day to day:
 
 ```bash
 ./run.sh --working-groups "робочі групи ЛИПЕНЬ.docx"
+./run.sh --working-groups "робочі групи ГРУДЕНЬ.docx" --year 2026
 ```
 
-Each block's text is used verbatim (the same coordinate/location
-stripping and trailing `;` → `.` fix still apply), dated by its own
-inline `DD.MM.YYYY` when the item carries one, or else the nearest
-preceding date-header paired with the current year. Output filenames are
-built from `WORKING_GROUP_UNIT_PREFIX` (`config.py`, default `"3 боп"`),
-the block's date, and every distinct order number referenced in it, e.g.:
+Each block's own leading `HH:MM-HH:MM` time (and optional inline
+`DD.MM.YYYY` override) is split out of the item text into its own
+`{дата}`-column line rather than left inline, so a run of otherwise-
+identical days actually compares equal and renders as stacked
+`DD.MM.YYYY` / `HH.MM-HH.MM` entries under one shared `{витяг}` block —
+matching how the daily-journal pipeline already stacks a person's
+multiple found days in one document. The remaining text is used verbatim
+(the same coordinate/location stripping and trailing `;` → `.` fix still
+apply), dated by its own inline `DD.MM.YYYY` when the item carries one, or
+else the nearest preceding date-header paired with `--year` if given, or
+the current year otherwise — pass `--year` when the report doesn't cover
+the year you're actually running the script in (e.g. processing a
+December report in January). Output filenames are built from
+`WORKING_GROUP_UNIT_PREFIX` (`config.py`, default `"3 боп"`), the run's
+date (or date range), and every distinct order number referenced across
+the run, e.g.:
 
 ```
 output/3 боп витяг жбд за 21.07.2026 БР2418.docx
+output/3 боп витяг жбд з 06.06.2026 по 08.06.2026 БР1596.docx
 ```
 
-Two blocks that land on the exact same date + order-id set get a
+Two runs that land on the exact same date(s) + order-id set get a
 `" (2)"`, `" (3)"`, ... suffix instead of silently overwriting each
 other. The input file must be a real `.docx` — a legacy binary `.doc`
 (detected by file signature, not just the extension) is rejected with a
