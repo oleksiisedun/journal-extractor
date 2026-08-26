@@ -134,7 +134,7 @@ def main():
 
         surname = extract_surname(full_name)
         output_path = os.path.join(OUTPUT_DIR, f"Витяг_{surname}_{issue_date.isoformat()}.docx")
-        render_extract(merge_consecutive_entries(entries), issue_date, TEMPLATE_PATH, output_path)
+        render_extract(merge_consecutive_entries(entries), TEMPLATE_PATH, output_path)
         print(f"  >>> Створено: {output_path}  ({len(entries)} з {len(relevant_days)} днів)")
 
 

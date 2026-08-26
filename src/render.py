@@ -29,27 +29,12 @@ DEFAULT_CELL_MARGIN_TWIPS = 108
 DEFAULT_FONT_SIZE_PT = 10.0
 
 
-def _replace_run_placeholder(document, placeholder, value):
-    """Substring-replaces `placeholder` inside whichever run of a top-level
-    (non-table) paragraph contains it, e.g. '3 ДСК/Х/7 від {дата витягу}'
-    -> '...від 01.08.2026' — formatting of the surrounding run is
-    untouched since only its text content changes."""
-    for paragraph in document.paragraphs:
-        for run in paragraph.runs:
-            if placeholder in run.text:
-                run.text = run.text.replace(placeholder, value)
-                return
-    raise ValueError(f"Placeholder {placeholder!r} not found in template")
-
-
 def _find_placeholder_cell_and_paragraph(document, placeholder):
     """Finds the table cell and paragraph whose entire text is exactly
     `placeholder` (e.g. '{дата}', '{витяг}') — in the real template each
-    one is the sole content of its own paragraph, distinct from
-    _replace_run_placeholder's case of a placeholder sharing a run with
-    other text. Returns the cell too (not just the paragraph) so callers
-    can inspect/adjust the paragraphs preceding it, e.g.
-    _equalize_leading_blanks()."""
+    one is the sole content of its own paragraph. Returns the cell too
+    (not just the paragraph) so callers can inspect/adjust the paragraphs
+    preceding it, e.g. _equalize_leading_blanks()."""
     for table in document.tables:
         for row in table.rows:
             for cell in row.cells:
@@ -341,21 +326,18 @@ def _format_fragment_lines(entries):
     return lines
 
 
-def render_extract(entries, issue_date, template_path, output_path):
+def render_extract(entries, template_path, output_path):
     """Fills `template_path` with `entries` (a chronological list of
     merge.merge_consecutive_entries()'s result dicts — {"text", "date_from",
     "date_to", "time", "time_confidence"} — for one person's "found" days
     only; callers are expected to have already filtered out "not_found"/
     "rejected" days and run the merge step) and saves the result to
-    `output_path`. `issue_date` fills the header's {дата витягу}
-    placeholder.
+    `output_path`.
     """
     if not entries:
         raise ValueError("No fragments to render — entries is empty.")
 
     document = docx.Document(template_path)
-
-    _replace_run_placeholder(document, "{дата витягу}", issue_date.strftime("%d.%m.%Y"))
 
     date_cell, date_paragraph = _find_placeholder_cell_and_paragraph(document, "{дата}")
     fragment_cell, fragment_paragraph = _find_placeholder_cell_and_paragraph(document, "{витяг}")

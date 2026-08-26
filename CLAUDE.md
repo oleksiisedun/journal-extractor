@@ -140,9 +140,10 @@ run via `run.sh`)
     of `journals/`, so the not-found/ambiguous/guardrail branching lives
     in one place rather than being duplicated inline.
 11. **Template rendering** (`render.py`): `render_extract()` fills
-    `templates/1.docx` — the real extract template, three placeholders:
-    `{дата витягу}` (issuance date, in the header) and `{дата}` / `{витяг}`
-    inside the results table's single data row. Every value written comes
+    `templates/1.docx` — the real extract template, two placeholders:
+    `{дата}` / `{витяг}` inside the results table's single data row (the
+    header no longer carries an issuance-date placeholder — it's static
+    template text now). Every value written comes
     verbatim out of `assemble_fragment()`'s output; rendering is pure
     placeholder substitution, never text generation. Each person's
     `"found"` days are stacked as additional paragraphs inside that same
