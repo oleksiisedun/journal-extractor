@@ -20,7 +20,8 @@ import os
 import sys
 from datetime import date, timedelta
 
-from config import JOURNAL_DIR, OUTPUT_DIR, TEMPLATE_PATH
+from assembly import strip_coordinates, strip_location_labels
+from config import JOURNAL_DIR, OUTPUT_DIR, TEMPLATE_PATH, WORKING_GROUP_UNIT_PREFIX
 from docx_parsing import extract_date_from_filename, load_paragraph_columns, load_paragraphs
 from merge import merge_consecutive_entries
 from person_spec import parse_person_spec
@@ -28,6 +29,7 @@ from pipeline import resolve_day_fragment
 from prefilter import extract_surname
 from render import render_extract
 from time_extraction import assign_time_boundaries
+from working_groups import build_working_group_filename, parse_working_group_blocks
 
 
 def load_people(argv):
@@ -56,7 +58,92 @@ def load_people(argv):
     return argv
 
 
+def _dedupe_output_path(path, used_paths):
+    """Returns `path` unchanged if not already in `used_paths`, else
+    appends a " (2)", " (3)", ... suffix before the extension until it's
+    unique -- two working-group blocks can land on the exact same date +
+    order-id set and would otherwise silently overwrite each other.
+    @param {str} path
+    @param {set[str]} used_paths
+    @returns {str}
+    """
+    if path not in used_paths:
+        return path
+    base, ext = os.path.splitext(path)
+    n = 2
+    while f"{base} ({n}){ext}" in used_paths:
+        n += 1
+    deduped = f"{base} ({n}){ext}"
+    print(f"  Попередження: файл-дублікат назви, перейменовано в {deduped}")
+    return deduped
+
+
+def generate_working_groups(docx_path):
+    """Entry point for --working-groups mode: one extract .docx per
+    reporting item ("block") found in a working-groups report, instead of
+    the usual one-per-person-across-many-days extract. See
+    working_groups.parse_working_group_blocks() for how blocks are found.
+    @param {str} docx_path
+    """
+    if not os.path.isfile(docx_path):
+        print(f"Файл не знайдено: {docx_path}")
+        sys.exit(1)
+    if not docx_path.lower().endswith((".doc", ".docx")):
+        print(f"Очікується .doc або .docx файл: {docx_path}")
+        sys.exit(1)
+    with open(docx_path, "rb") as f:
+        magic = f.read(4)
+    if magic != b"PK\x03\x04":
+        print(
+            f"«{os.path.basename(docx_path)}» — це застарілий бінарний .doc "
+            f"(не .docx), який не підтримується. Збережіть файл як .docx "
+            f"(Word/LibreOffice: «Зберегти копію» → .docx) і спробуйте ще раз."
+        )
+        sys.exit(1)
+
+    blocks = parse_working_group_blocks(docx_path)
+    if not blocks:
+        print(f"У {docx_path} не знайдено жодного блоку.")
+        return
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    used_paths = set()
+    created = 0
+
+    for block in blocks:
+        text = strip_location_labels(strip_coordinates(block["text"])).rstrip()
+        if text.endswith(";"):
+            text = text[:-1] + "."
+
+        filename = build_working_group_filename(
+            WORKING_GROUP_UNIT_PREFIX, block["date"], block["order_ids"]
+        )
+        output_path = _dedupe_output_path(os.path.join(OUTPUT_DIR, filename), used_paths)
+        used_paths.add(output_path)
+
+        entry = {
+            "text": text,
+            "date_from": block["date"],
+            "date_to": block["date"],
+            "time": None,
+            "time_confidence": "uncertain",
+        }
+        render_extract([entry], TEMPLATE_PATH, output_path)
+        created += 1
+        print(f"  >>> Створено: {output_path}")
+
+    print(f"Разом: {created} з {len(blocks)} блоків.")
+
+
 def main():
+    argv = sys.argv[1:]
+    if argv[:1] == ["--working-groups"]:
+        if len(argv) != 2:
+            print("Використання: ./run.sh --working-groups <файл.docx>")
+            sys.exit(1)
+        generate_working_groups(argv[1])
+        return
+
     people = load_people(sys.argv[1:])
 
     docx_paths = []
