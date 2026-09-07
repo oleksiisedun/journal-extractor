@@ -49,7 +49,7 @@ introduces a text-generation step.
 
 ```mermaid
 graph TD
-  Journal[(".docx"\njournal source)] --> Load["load_paragraphs()\nindexed, verbatim"]
+  Journal[(".docx\njournal source")] --> Load["load_paragraphs()\nindexed, verbatim"]
   Journal --> Filename["extract_date_from_filename()"]
   Journal --> Cols["load_paragraph_columns()\ntime column + content column"]
 
@@ -57,7 +57,7 @@ graph TD
     Load --> Surname["find_candidate_windows()\nsurname match, ±8 paragraphs"]
     Surname --> Narrow["filter_windows_by_full_name()\ndisambiguate namesakes"]
     Narrow -->|exactly 1 match| Pointer["build_pointer()\nfind_full_name_paragraph() -> target\nfind_preceding_order_paragraph()\nfind_preceding_label_header() -> context,\neven outside the ±8 window"]
-    Narrow -->|>1 match:\nreal ambiguity| Ambiguous["select_ambiguous_window()"]
+    Narrow -->|"more than 1 match:\nreal ambiguity"| Ambiguous["select_ambiguous_window()"]
     Ambiguous --> Pointer
   end
 
@@ -78,16 +78,16 @@ graph TD
 
   Fragment --> Merge["merge_consecutive_entries()\ncollapse consecutive days\nwith byte-identical text"]
   Merge --> Render["render_extract()\nfills templates/1.docx\n{дата}/{витяг} placeholders"]
-  Render --> Output[(".docx"\nextract output)]
+  Render --> Output[(".docx\nextract output")]
 
   subgraph WorkingGroups["--working-groups mode — alternate entry path,\none extract per run of identical report items, not per person"]
-    WGDoc[(".docx"\nworking-groups report,\nflowing paragraphs, no table)] --> ParseBlocks["parse_working_group_blocks()\none block per reporting item,\ntime split out of text"]
+    WGDoc[(".docx\nworking-groups report,\nflowing paragraphs, no table")] --> ParseBlocks["parse_working_group_blocks()\none block per reporting item,\ntime split out of text"]
     ParseBlocks --> WGStrip["strip_coordinates()\nstrip_location_labels()\n(same functions as above)"]
     WGStrip --> WGGroup["group_consecutive_identical_blocks()\nstack consecutive days\nwith byte-identical text"]
     WGGroup --> WGFilename["build_working_group_filename()\nunit prefix + date/date-range + order ids"]
   end
 
-  WGFilename -.->|same render_extract()\nas the main pipeline| Render
+  WGFilename -.->|"same render_extract()\nas the main pipeline"| Render
 ```
 
 ## Setup
@@ -257,6 +257,16 @@ the run, e.g.:
 ```
 output/3 боп витяг жбд за 21.07.2026 БР2418.docx
 output/3 боп витяг жбд з 06.06.2026 по 08.06.2026 БР1596.docx
+```
+
+When the same recurring item's occurrences aren't all contiguous — e.g.
+someone else covers the same duty for a stretch of days, then the
+original person's identical-text entry resumes later in the month — the
+filename lists each contiguous span separately instead of claiming one
+continuous run:
+
+```
+output/3 боп витяг жбд 02.07.2026-05.07.2026 10.07.2026-11.07.2026 20.07.2026-31.07.2026 БР1927.docx
 ```
 
 Two runs that land on the exact same date(s) + order-id set get a
