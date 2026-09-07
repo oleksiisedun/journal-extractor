@@ -334,7 +334,13 @@ range; when it has more than one (the gapped case), each range instead
 renders compactly as `"DD.MM.YYYY-DD.MM.YYYY"` (or bare `"DD.MM.YYYY"` for
 a lone day within the list), space-separated, e.g. `"02.07.2026-05.07.2026
 10.07.2026-11.07.2026 20.07.2026-31.07.2026"` — so the filename itself
-never implies a continuous span the source doesn't show.
+never implies a continuous span the source doesn't show. Order ids are
+always displayed `БР`-prefixed (e.g. `БР1927`) regardless of which
+spelling a given occurrence used in the source — the same order is
+written both `№1927/...` and `№БР 1927/...` in real documents, so
+`_extract_order_ids()` normalizes the *display* token while still deduping
+on the bare digits, rather than transcribing whichever spelling happened
+to be matched first.
 `_dedupe_output_path()` appends `" (2)"`, `" (3)"`, ... if two groups would
 otherwise collide on the same filename. Legacy binary `.doc` input is
 rejected up front (checked by file signature, not extension).
