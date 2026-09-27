@@ -8,3 +8,7 @@ echo "=== ruff format --check ==="
 ruff format --check src/
 echo "=== pyright ==="
 pyright src/
+echo "=== shellcheck ==="
+shellcheck run.sh check.sh
+echo "=== shfmt ==="
+shfmt -d run.sh check.sh
