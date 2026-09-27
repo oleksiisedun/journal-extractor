@@ -165,56 +165,13 @@ run via `run.sh`)
     **Keeping the {дата} column aligned with {витяг}**: the two cells are
     filled independently, so without compensation each entry's date would
     drift from its matching text as soon as any earlier entry's assembled
-    text spans more than one paragraph. Three corrections, all in
-    `render.py`:
-    - `_equalize_leading_blanks()` trims whichever cell has more static
-      leading paragraphs before its placeholder down to the other's count
-      — the real template has 3 blank paragraphs before `{дата}` but only
-      2 (a header line + blank) before `{витяг}`, a constant offset that
-      would otherwise persist regardless of entry content. Only ever
-      deletes blank paragraphs, never real template text.
-    - `_format_date_lines()` pads each entry's date block — except the
-      last entry, which is never padded, since that padding exists only to
-      push a *later* entry's date down; padding it anyway just adds
-      trailing blank paragraphs that make the {дата} cell (and so the
-      whole row) taller than the content needs, leaving a visible empty
-      gap at the bottom of the table — with blank paragraphs up to that
-      entry's *measured visual line count* (`_entry_visual_line_count()`),
-      not its raw paragraph count — a long order-reference paragraph is
-      one docx paragraph but wraps to several visual lines in Word, so
-      matching on paragraph count alone still left later dates landing
-      early, inside an earlier entry's wrapped paragraph. Line counts come
-      from `text_wrap.estimate_wrapped_line_count()`
-      — a real greedy word-wrap simulation against actual glyph widths from
-      the bundled font `assets/fonts/Carlito-Regular.ttf` (Carlito is
-      metric-compatible with Calibri, `templates/1.docx`'s real but
-      unembedded/uninstalled font, and is what LibreOffice — which this
-      template's own fingerprints indicate produced/renders it — silently
-      substitutes for a missing Calibri), measured against the `{витяг}`
-      cell's actual width/margins/first-line-indent read straight from the
-      template (`render.py`'s `_fragment_line_widths_pt()`,
-      `_cell_margin_twips()`, `_run_font_size_pt()`) — not a guessed
-      constant. Still a simulation, not Word's own layout engine, so
-      occasional ±1 line drift is possible on unusual paragraph shapes
-      (e.g. break opportunities around `/` or `-` that this word-based
-      splitter doesn't model); re-validate if `templates/1.docx`'s column
-      width or font ever change. Requires Pillow (for font glyph-width
-      measurement) — not currently pinned in a requirements file, since
-      this project doesn't have one yet.
-    - `_zero_space_after()`, applied inside `_expand_multiline_placeholder()`:
-      every paragraph in the template — including a blank filler one —
-      carries a fixed 8pt `w:spacing w:after`, which Word charges once per
-      *paragraph*, not once per *visual line*. A `{витяг}` paragraph that
-      wraps to N lines only pays that 8pt once, but the old padding built N
-      separate one-line filler paragraphs, each paying its own 8pt — so
-      the `{дата}` column ended up taller than the `{витяг}` text it was
-      supposed to track, drifting further with each earlier multi-line
-      entry (see bug log item 12). Fixed by having `_format_date_lines()`
-      emit `(text, suppress_space_after)` pairs: only as many filler
-      paragraphs per entry as that entry's real `{витяг}` paragraph count
-      keep normal space-after, the rest get it zeroed — matching the two
-      columns' total charged space-after instances exactly, regardless of
-      how many lines a paragraph wraps to.
+    text spans more than one paragraph. Fixed by three corrections in
+    `render.py` (`_equalize_leading_blanks()`, `_format_date_lines()`'s
+    visual-line-count padding via `text_wrap.estimate_wrapped_line_count()`,
+    and `_zero_space_after()`) — see
+    [docs/decisions/0001-date-column-alignment.md](docs/decisions/0001-date-column-alignment.md)
+    for the full rationale and consequences; re-check it before changing
+    any of those three functions.
 12. **Requested date range** (`person_spec.py`): each person's CLI spec may
     carry an optional trailing `DD.MM.YYYY` or `DD.MM.YYYY-DD.MM.YYYY`
     (e.g. `"старший солдат БОНДАРЕНКО Олег Васильович
@@ -255,175 +212,46 @@ one extract per *person* across many days, it produces one extract per
 *distinct reporting item ("block") text, once punctuation marks are
 ignored* found in a single month-spanning "РОБОЧІ ГРУПИ" (working groups)
 report — a `.docx` written as flowing body paragraphs (no table, unlike
-the daily journals). A recurring item (same governing order, same body
-text modulo incidental punctuation — e.g. a trailing `.` one day vs `;`
-another, or a `,` vs `;` mid-sentence) collapses into one file with every
-occurrence's date+time stacked, instead of one near-duplicate file per
-day — **every occurrence of that same item goes into the same file
-regardless of calendar gaps between occurrences** (e.g. a different person
-covers the same duty for a stretch of days, then the original person's
-identical-text entry resumes later in the month): each occurrence keeps
-its own dated entry rather than being folded into a single "з ... по ..."
-span, so a gap day simply has no entry and nothing is misrepresented — see
-bug case below. Each block's own text still renders byte-verbatim in the
-output — only the *grouping decision* ignores punctuation, per
-`working_groups.py`'s `_normalize_for_grouping()`.
-
-`working_groups.py`'s `parse_working_group_blocks()` walks the
-document's paragraphs deterministically: a `DD.MM` line is a date-header
-that supplies the fallback date for items that follow; each reporting
-item is recognized by `ITEM_START_PATTERN` (an optional leading
-`DD.MM.YYYY` override, then an `HH:MM-HH:MM`-shaped time range, both as
-named regex groups) and carries its remaining text verbatim (the matched
-date-override/time-range prefix is split off into the block's own `"time"`
-field rather than left inline — it's structural item metadata, not
-narrative content, and leaving it inline would (a) defeat byte-identical
-text comparison between otherwise-identical days and (b) leave the
-rendered `{дата}` column with nothing to show, since `time` used to be
-discarded entirely) plus any order numbers found via
-`WORKING_GROUP_ORDER_REF_PATTERN` (a working-groups-specific pattern —
-deliberately not `patterns.ORDER_REF_PATTERN` — tolerant of `БР`-prefixed
-and space-variant order tokens). A paragraph matching neither shape is
-skipped with a loud warning, never silently dropped.
-
-A header-derived date (no inline `DD.MM.YYYY` on the item itself) pairs
-the header's day/month with `--year` if given, else the year the script
-happens to be *run* in (`date.today().year`) — a fallback that's only
-correct when running in the same year the report covers. **Known
-limitation, left unfixed by design**: a report whose own date-header
-sections straddle a year boundary (e.g. late December into early January
-within one file) can't be represented by one flat `--year` value; this
-wasn't judged worth solving since real working-groups reports each cover a
-single calendar month and so never actually straddle a year boundary
-themselves — `--year` only exists for the case where the report covers one
-year but the script runs in a different one (e.g. processing a December
-report in January).
-
-`generate_extract.py`'s `generate_working_groups()` sorts blocks
-chronologically, applies the same coordinate/location stripping and
-trailing `;` → `.` fix as the main pipeline to each block's text, then
-groups them via `working_groups.py`'s `group_consecutive_identical_blocks()`
-— unlike `merge.merge_consecutive_entries()`'s adjacency-walk (which
-requires exactly-consecutive calendar dates and always breaks a run on a
-gap), this groups **every occurrence of a given normalized text into one
-group, regardless of calendar gaps** between occurrences: it buckets all
-blocks by `_normalize_for_grouping()`'s punctuation-insensitive key first,
-then treats each bucket as one whole group, no further date-based
-splitting. This is safe (unlike folding into a single "з ... по ..." span)
-because every block stays its own dated entry within the group instead of
-collapsing into one line — a gap date simply produces no entry, so nothing
-implies continuous presence across it. Kept as a separate function from
-`merge_consecutive_entries()` rather than adding a mode flag to it, since
-the two output shapes are different enough (fold-into-a-range vs.
-one-group-per-distinct-text-with-every-occurrence-kept-separate) that
-sharing one function would trade a clear function for a branchy one. Each
-group is rendered through the same multi-entry `render_extract()` template
-path the per-person pipeline already uses to stack a person's multiple
-found days in one document — no changes needed there. Output filenames
-come from `build_working_group_filename()`, given the group's date ranges
-from `compute_date_ranges()` (partitions the group's dates into runs of
-chronologically-consecutive calendar days — since a group's occurrences
-can now be non-contiguous, there can be more than one such run) —
-`WORKING_GROUP_UNIT_PREFIX` in `config.py` (e.g. `"3 боп"`) + the date
-part + every distinct order id across the group, unioned via
-`union_order_ids()` in first-appearance order. The date part is `"за
-DD.MM.YYYY"` for a single day or `"з DD.MM.YYYY по DD.MM.YYYY"` for one
-contiguous run (same phrasing `render.py`'s `_format_date_lines()` uses
-for a merged multi-day {дата} entry) when the group has exactly one date
-range; when it has more than one (the gapped case), each range instead
-renders compactly as `"DD.MM.YYYY-DD.MM.YYYY"` (or bare `"DD.MM.YYYY"` for
-a lone day within the list), space-separated, e.g. `"02.07.2026-05.07.2026
-10.07.2026-11.07.2026 20.07.2026-31.07.2026"` — so the filename itself
-never implies a continuous span the source doesn't show. Order ids are
-always displayed `БР`-prefixed (e.g. `БР1927`) regardless of which
-spelling a given occurrence used in the source — the same order is
-written both `№1927/...` and `№БР 1927/...` in real documents, so
-`_extract_order_ids()` normalizes the *display* token while still deduping
-on the bare digits, rather than transcribing whichever spelling happened
-to be matched first.
-`_dedupe_output_path()` appends `" (2)"`, `" (3)"`, ... if two groups would
-otherwise collide on the same filename. Legacy binary `.doc` input is
-rejected up front (checked by file signature, not extension).
-
-**Bug case (fixed): a recurring item with a real coverage gap used to
-split into multiple near-duplicate files instead of one.** Real case
-(`journals/РОБОЧІ ГРУПИ 01.07-31.07.docx`, order `№БР1927/(S-3) ВКП/ДСК`,
-БАЙЛИМ Іван Сергійович's identical-text entry): he covered this duty
-02.07–05.07, someone else covered it 06.07–19.07, then he resumed
-20.07–31.07 with byte-identical (post-normalization) text. Before the fix,
-`group_consecutive_identical_blocks()` split same-text occurrences into a
-new group every time a date gap appeared — same "gap breaks a run" rule as
-`merge.merge_consecutive_entries()` — producing three separate,
-near-duplicate output files for what a human reviewer would recognize as
-one recurring assignment. Verified against the real source file that the
-gap dates (06.07–19.07) genuinely have no matching-text block (a different
-person's paragraph covers those dates instead), ruling out a parsing miss.
-Fixed by removing the date-gap split entirely for this mode: grouping is
-now purely by normalized text, and `compute_date_ranges()` +
-`build_working_group_filename()`'s multi-range format make the resulting
-single file's filename correctly show the three separate spans instead of
-falsely claiming one continuous run.
+the daily journals). A recurring item collapses into one file with every
+occurrence's date+time stacked, regardless of calendar gaps between
+occurrences (a different person covering the same duty for a stretch of
+days doesn't split the recurring item into separate files) — each
+occurrence keeps its own dated entry rather than being folded into a
+single "з ... по ..." span, so a gap day simply has no entry. Parsing
+(`working_groups.py`'s `parse_working_group_blocks()`), grouping
+(`group_consecutive_identical_blocks()`), date-range/filename construction
+(`compute_date_ranges()`, `build_working_group_filename()`), the
+year-boundary limitation, and a real fixed bug case (a recurring item with
+a genuine coverage gap that used to split into near-duplicate files) are
+documented in full in
+[docs/working-groups.md](docs/working-groups.md).
 
 ## Time-of-day extraction
 
-Real files use one of two formats for encoding time — never mixed within a
-single day, in every file seen so far:
-
-**(a) Inline / "easy case"** — a content paragraph itself starts with the
-time (e.g. `'00.00 на виконання БОЙОВОГО РОЗПОРЯДЖЕННЯ ...'`), and the
-left time column is empty. `extract_inline_time()` matches this exactly —
-no guessing, always `"confident"`. This is the common case in
-`journals/ЖБД 10.07.2026.docx` (84 order-intro paragraphs, each with its
-own inline time).
-
-**(b) Left-column / "hard case"** — the narrow left column carries the
-times, and **the two columns are not paragraph-aligned.** Verified
-empirically: in one sample the left column had 217 raw paragraphs (11
-non-empty time labels), the right had 155, and the gaps between
-consecutive time labels (57, 41, 11, 6, 10, 2, 2, 2, 17, 3 paragraph-slots)
-don't track the right column's structure proportionally. A naive
-linear-interpolation mapping from left-column position to right-column
-position landed correctly on real section/list headers for only some
-labels — for the rest it landed **inside a single, homogeneous ~30-person
-list governed by one order**, which would have silently mis-assigned a
-time to real people. The alignment is purely visual/eyeballed by whoever
-typed the document — there is no textual convention that recovers it
-exactly. Instead, a snap-to-nearest-boundary heuristic is used
-(`is_boundary_paragraph()`, `_assign_time_boundaries_left_column()`):
-1. Only paragraphs that look like a genuine section/list boundary — Roman-
-   numeral headers, lines ending in `:`, or order-reference sentences
-   (`№\S+`) — are ever eligible to receive a time assignment. Ordinary list
-   entries (a single person's line) never qualify. This is what stops a
-   time label from being snapped into the middle of a person list.
-2. Each time label's raw column-0 position is mapped to a proportional cut
-   point in column-1, then **snapped forward** to the nearest eligible
-   boundary paragraph.
-3. A snap is marked `"uncertain"` if it traveled more than a slack
-   threshold (15 raw paragraphs) from its predicted cut point, or if two
-   labels collided on the same boundary (ambiguous which one really
-   governs it — the later, more specific time is kept). This confidence
-   value is still computed and threaded through the pipeline as of this
-   writing but is no longer surfaced in the rendered `.docx` (see step 11
-   above) — it renders identically to a confident time.
-
-`assign_time_boundaries()` is the dispatcher: it tries (a) first (via
-`_assign_time_boundaries_inline()`) and only falls back to (b) if no
-inline time tokens were found in that row's content paragraphs.
-
-**Caveat**: only three real sample files have been checked
-(`journals/ЖБД_02_04_2026.docx`, `ЖБД 10.07.2026.docx`,
-`ЖБД_12-04-2026.docx`). The "column 0 = time, column 1 = content" layout,
-the mutual-exclusivity-per-row assumption between formats (a) and (b), and
-the boundary regexes above are derived from these — re-validate against
-more files rather than assuming they generalize forever.
+Real files use one of two mutually-exclusive-per-row formats for encoding
+time: (a) inline — a content paragraph itself starts with the time (e.g.
+`'00.00 на виконання ...'`), exact and always `"confident"`
+(`extract_inline_time()`); (b) left-column — the narrow left column
+carries times that are **not paragraph-aligned** with the content column,
+handled by a snap-to-nearest-boundary heuristic
+(`is_boundary_paragraph()`, `_assign_time_boundaries_left_column()`) that
+marks a snap `"uncertain"` past a slack threshold. `assign_time_boundaries()`
+tries (a) first, falls back to (b). Full heuristic rationale, the
+empirical evidence behind it, and the caveat that it's derived from only
+three sample files are in
+[docs/time-extraction.md](docs/time-extraction.md) — re-check that before
+touching either format's handling.
 
 ## Not yet built
 
 - A real accuracy benchmark: ~15-20 hand-verified (person, day, expected
-  pointer) cases, tracked as a pass-rate, to catch regressions when
-  `prefilter.py`'s finder functions change instead of discovering bugs one
-  production run at a time (which is how every entry in
-  [docs/bug-log.md](docs/bug-log.md) was actually found).
+  pointer) cases **against real `journals/` `.docx` files**, tracked as a
+  pass-rate. `tests/` (see "Unit tests" below) covers the same bug-log
+  regression cases at the function level with synthetic paragraph lists —
+  useful for catching a logic regression the moment it's introduced — but
+  that's not a substitute for exercising the real parsing/prefilter chain
+  end-to-end against actual source documents, which this item is still
+  about.
 
 The pipeline is pure string/regex logic over an already-parsed paragraph
 list (no model inference), so it runs in well under a second per
@@ -474,12 +302,20 @@ the filename-separator variants (see `journals/`, gitignored):
   (the one regex — `ORDER_REF_PATTERN` — shared between `assembly.py`,
   `time_extraction.py`, and `prefilter.py`; kept separate to avoid a
   circular import between `assembly.py` and `time_extraction.py`),
+  `domain_types.py` (shared type aliases/`TypedDict`s for the shapes
+  passed between modules — e.g. `Paragraphs`, `Pointer`, `Fragment`,
+  `MergedEntry` — kept in one place so a shape change touches a single
+  definition instead of every module that names it),
   `docx_parsing.py`, `prefilter.py` (surname/full-name narrowing +
   `build_pointer()`), `time_extraction.py`, `assembly.py`, `pipeline.py`
   (`resolve_day_fragment()` — the per-day orchestration wrapper),
   `person_spec.py` (`parse_person_spec()` — optional per-person requested
   date range), `merge.py` (`merge_consecutive_entries()` — cross-day
-  date-range merging), `render.py` (fills `templates/1.docx`),
+  date-range merging), `date_formatting.py` (`format_date()`,
+  `format_date_span()` — the `"DD.MM.YYYY"`/`"з ... по ..."` formatting
+  shared between `render.py` and `working_groups.py`, kept in one place so
+  the two output paths can't drift apart on wording), `render.py` (fills
+  `templates/1.docx`),
   `text_wrap.py` (`estimate_wrapped_line_count()` — real glyph-width-based
   word-wrap simulation used only to keep `render.py`'s `{дата}`/`{витяг}`
   columns aligned; kept separate since it's pure text-measurement geometry,
@@ -517,20 +353,49 @@ section is generic code-quality tooling, checked via `pyproject.toml`.
 
 Run `./check.sh` before committing a logic change (skip for a pure
 docs/comment/sample-data change). It runs, in order:
-- `ruff check src/` — lint (`select = ["E", "F", "I", "B", "UP", "SIM"]`
-  in `pyproject.toml`: pycodestyle, pyflakes, import sorting, bugbear,
-  pyupgrade, simplify).
-- `ruff format --check src/` — formatting. Run `ruff format src/` (no
-  `--check`) to fix in place.
-- `pyright src/` — type checking, `standard` mode. The codebase has no
-  type hints yet (JSDoc-style `@param`/`@returns` comments are used
-  instead, e.g. in `person_spec.py`) — `standard` mode still catches real
-  bugs from pyright's own inference (e.g. the `date | None` comparison
-  bug fixed alongside this guardrail's introduction) without requiring
-  hints to be added everywhere.
+- `uv run ruff check src/ tests/` — lint (`select = ["E", "F", "I", "B",
+  "UP", "SIM"]` in `pyproject.toml`: pycodestyle, pyflakes, import
+  sorting, bugbear, pyupgrade, simplify).
+- `uv run ruff format --check src/ tests/` — formatting. Run `uv run ruff
+  format src/ tests/` (no `--check`) to fix in place.
+- `uv run pyright` — type checking, `standard` mode, over both `src/` and
+  `tests/` (`[tool.pyright]`'s `include`). Every function signature
+  carries real type hints (shared shapes live in `domain_types.py`) —
+  `standard` mode has already caught real bugs from its own inference
+  this way (e.g. a possibly-`None` `_Cell.width` in `render.py`, and an
+  earlier `date | None` comparison bug) that a JSDoc comment convention
+  wouldn't have.
+- `uv run pytest` — `tests/` mirrors `src/`'s module split; see "Unit
+  tests" below.
+- `shellcheck run.sh check.sh` — shell lint.
+- `shfmt -d run.sh check.sh` — shell formatting check. Run `shfmt -w
+  run.sh check.sh` (no `-d`) to fix in place.
 
-Requires `ruff` and `pyright` installed (e.g. via `pipx install ruff
-pyright`) — not currently pinned anywhere, since the project has no dev
-dependency group yet (no `uv`/lockfile in use here; `run.sh` calls system
-`python3` directly and `python-docx`/`Pillow` are installed globally).
-Not wired into a git hook or CI — run manually.
+Dev dependencies (`ruff`, `pyright`, `pytest`) are declared in
+`pyproject.toml`'s `[dependency-groups] dev` and pinned in the committed
+`uv.lock`; `uv run <tool>` resolves and uses that exact pinned version
+without needing anything installed globally — run `uv sync` once to
+create `.venv/` (uv does this automatically on first `uv run` too).
+`shellcheck`/`shfmt` aren't Python packages, so they still come from your
+OS package manager. Not wired into a git hook or CI — run manually.
+
+## Unit tests
+
+`tests/` mirrors `src/`'s module split (`test_merge.py`, `test_assembly.py`,
+etc.), one file per module that has real branching logic to test.
+`pyproject.toml`'s `[tool.pytest.ini_options]` puts `src/` on
+`pythonpath` so tests import modules directly (`from merge import ...`),
+matching how the modules already import each other. Every test uses
+synthetic paragraph lists/dicts, never a real `.docx` file — fast,
+deterministic, no `journals/`/`templates/` dependency. Several tests
+encode the exact regression cases from
+[docs/bug-log.md](docs/bug-log.md) (items 1, 2, 3, 4, 5, 6) as
+`pytest.raises`/assertion cases instead of prose, so a future change to
+`prefilter.py`'s finder functions or `assembly.py`'s stripping/guardrail
+logic that reintroduces one of those bugs fails loudly and immediately,
+rather than waiting to be caught on the next production run. Not covered (deliberately — "skip tests that don't earn their keep", per
+the global CLAUDE.md's unit-test doc): `render.py` (real docx-XML/template
+orchestration, better verified manually against
+`docs/decisions/0001-date-column-alignment.md`'s real case), and
+`generate_extract.py` (thin CLI/glue wiring already-tested functions
+together).
