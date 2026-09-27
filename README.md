@@ -94,10 +94,12 @@ graph TD
 
 **1. Install Python dependencies**
 
-(Pillow is used only to measure real glyph widths from the bundled
+Dependencies are declared in `pyproject.toml` (`python-docx`, `Pillow` —
+Pillow is used only to measure real glyph widths from the bundled
 `assets/fonts/Carlito-Regular.ttf`, so `render.py` can compute how many
 visual lines a paragraph wraps to and keep the `{дата}` column aligned with
-`{витяг}` — see `text_wrap.py`.)
+`{витяг}` — see `text_wrap.py`). Install the project itself so `pip` reads
+that list instead of naming packages by hand:
 
 **Linux**
 
@@ -106,7 +108,7 @@ Python that refuses a system-wide `pip install` outside a virtual
 environment (PEP 668). `--break-system-packages` overrides that guard:
 
 ```bash
-pip install python-docx pillow --break-system-packages
+pip install -e . --break-system-packages
 ```
 
 If your distro doesn't enforce PEP 668, or you'd rather not install into
@@ -116,7 +118,7 @@ flag:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install python-docx pillow
+pip install -e .
 ```
 
 (Activate the venv — `source .venv/bin/activate` — in every new shell
@@ -125,8 +127,7 @@ before running `run.sh`.)
 **macOS**
 
 Same PEP 668 guard applies to Homebrew's Python. Either
-`pip install python-docx pillow --break-system-packages`, or use a venv as
-shown above.
+`pip install -e . --break-system-packages`, or use a venv as shown above.
 
 **Windows**
 
@@ -135,11 +136,15 @@ Install Python 3 from [python.org](https://www.python.org/downloads/) (check
 Prompt:
 
 ```powershell
-pip install python-docx pillow
+pip install -e .
 ```
 
 `--break-system-packages` is specific to PEP 668-enforcing Python installs
 (Linux/macOS above) — omit it on Windows, it isn't recognized there.
+
+Contributing to the pipeline itself (not just running it)? `./check.sh`
+runs lint/format/type checks — see `CLAUDE.md`'s "Static checks" section
+for what it needs installed and why.
 
 **2. Provide source files**
 
