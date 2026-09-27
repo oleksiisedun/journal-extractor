@@ -120,10 +120,14 @@ def assemble_fragment(paragraphs, pointer, date_value=None, time_boundaries=None
     # №БН5/Б3/ДСК ... та БОЙОВОГО РОЗПОРЯДЖЕННЯ ... №БР63/Б3/9Р/ДСК ...")
     # is real and must NOT trip this — so the check counts order-bearing
     # PARAGRAPHS, not distinct order numbers.
-    order_bearing_paragraphs = [i for i in context_indices if extract_order_refs(para_dict[i])]
+    order_bearing_paragraphs = [
+        i for i in context_indices if extract_order_refs(para_dict[i])
+    ]
     if len(order_bearing_paragraphs) > 1:
         conflicting_refs = {
-            ref for i in order_bearing_paragraphs for ref in extract_order_refs(para_dict[i])
+            ref
+            for i in order_bearing_paragraphs
+            for ref in extract_order_refs(para_dict[i])
         }
         raise ValueError(
             f"PIPELINE ERROR: context paragraphs reference MULTIPLE "
@@ -156,7 +160,9 @@ def assemble_fragment(paragraphs, pointer, date_value=None, time_boundaries=None
     if stripped.endswith(";"):
         stripped = stripped[:-1] + "."
 
-    time_result = time_for_paragraph(time_boundaries, target_index) if time_boundaries else None
+    time_result = (
+        time_for_paragraph(time_boundaries, target_index) if time_boundaries else None
+    )
     time_value, time_confidence = time_result if time_result else (None, "uncertain")
 
     return {

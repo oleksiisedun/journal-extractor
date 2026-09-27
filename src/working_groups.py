@@ -109,7 +109,9 @@ def parse_working_group_blocks(docx_path, year_override=None):
 
         if item_match.group("day"):
             inline_day, inline_month, inline_year = (
-                int(item_match.group("day")), int(item_match.group("month")), int(item_match.group("year")),
+                int(item_match.group("day")),
+                int(item_match.group("month")),
+                int(item_match.group("year")),
             )
             block_date = date(inline_year, inline_month, inline_day)
         elif current_section_date is not None:
@@ -120,13 +122,15 @@ def parse_working_group_blocks(docx_path, year_override=None):
             print(f"  Paragraph outside any date section, skipped: {stripped[:100]!r}")
             continue
 
-        item_text = text[item_match.end():].lstrip(" \t")
-        blocks.append({
-            "date": block_date,
-            "text": item_text,
-            "time": item_match.group("time"),
-            "order_ids": _extract_order_ids(text),
-        })
+        item_text = text[item_match.end() :].lstrip(" \t")
+        blocks.append(
+            {
+                "date": block_date,
+                "text": item_text,
+                "time": item_match.group("time"),
+                "order_ids": _extract_order_ids(text),
+            }
+        )
 
     return blocks
 
@@ -274,7 +278,9 @@ def build_working_group_filename(unit_prefix, date_ranges, order_ids):
         if date_from == date_to:
             date_part = f"за {date_from.strftime('%d.%m.%Y')}"
         else:
-            date_part = f"з {date_from.strftime('%d.%m.%Y')} по {date_to.strftime('%d.%m.%Y')}"
+            date_part = (
+                f"з {date_from.strftime('%d.%m.%Y')} по {date_to.strftime('%d.%m.%Y')}"
+            )
     else:
         date_part = " ".join(
             date_from.strftime("%d.%m.%Y")

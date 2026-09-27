@@ -85,9 +85,7 @@ def _assign_time_boundaries_left_column(row, slack):
 
     raw_assignments = []
     for label_raw_idx, time_value in time_labels:
-        cut_point = round(
-            label_raw_idx / (left_raw_count - 1) * (right_raw_count - 1)
-        )
+        cut_point = round(label_raw_idx / (left_raw_count - 1) * (right_raw_count - 1))
         snapped = next((b for b in boundary_candidates if b[0] >= cut_point), None)
         if snapped is None:
             continue  # no boundary left to snap to — this label can't be placed

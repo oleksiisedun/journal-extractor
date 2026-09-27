@@ -42,7 +42,7 @@ def parse_person_spec(raw):
     if not match:
         return raw.strip(), None, None
 
-    full_name = raw[:match.start()].strip()
+    full_name = raw[: match.start()].strip()
     date_from = _parse_ddmmyyyy(match.group(1))
     date_to = _parse_ddmmyyyy(match.group(2)) if match.group(2) else date_from
 
