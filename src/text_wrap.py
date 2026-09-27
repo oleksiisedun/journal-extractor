@@ -18,8 +18,12 @@ import os
 
 from PIL import ImageFont
 
-_FONT_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "fonts", "Carlito-Regular.ttf")
-_MEASURE_SIZE = 1000  # arbitrary large nominal size for measurement precision; scaled to the real font size afterward
+_FONT_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "assets", "fonts", "Carlito-Regular.ttf"
+)
+# arbitrary large nominal size for measurement precision; scaled to the
+# real font size afterward
+_MEASURE_SIZE = 1000
 _font_cache = {}
 
 
@@ -40,7 +44,9 @@ def _text_width_pt(text, font_size_pt):
     return raw_width * (font_size_pt / _MEASURE_SIZE)
 
 
-def estimate_wrapped_line_count(text, font_size_pt, first_line_width_pt, continuation_width_pt):
+def estimate_wrapped_line_count(
+    text, font_size_pt, first_line_width_pt, continuation_width_pt
+):
     """Simulates greedy word-wrap of `text` (split on spaces, no
     hyphenation -- matching templates/1.docx's
     `<w:suppressAutoHyphens w:val="true"/>` docDefault) into lines no wider

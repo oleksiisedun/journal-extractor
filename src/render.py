@@ -66,16 +66,16 @@ def _remove_leading_blanks(cell, count):
     static template content (e.g. the {витяг} cell's "V. Хід бойових дій"
     header) is never deleted, even if `count` asks for more than the
     cell's actual blank-only prefix."""
-    removed = 0
-    for paragraph in list(cell.paragraphs):
+    for removed, paragraph in enumerate(list(cell.paragraphs)):
         if removed >= count or paragraph.text != "":
             break
         p_element = paragraph._p
         p_element.getparent().remove(p_element)
-        removed += 1
 
 
-def _equalize_leading_blanks(date_cell, date_paragraph, fragment_cell, fragment_paragraph):
+def _equalize_leading_blanks(
+    date_cell, date_paragraph, fragment_cell, fragment_paragraph
+):
     """The real template has a different number of static leading
     paragraphs before {дата} (3 blanks) than before {витяг} (1 "V. Хід
     бойових дій" header line + 1 blank) — 3 vs 2. Even after
@@ -235,18 +235,24 @@ def _fragment_line_widths_pt(fragment_cell, fragment_paragraph):
     return first_line_width_pt, continuation_width_pt
 
 
-def _entry_visual_line_count(entry, font_size_pt, first_line_width_pt, continuation_width_pt):
+def _entry_visual_line_count(
+    entry, font_size_pt, first_line_width_pt, continuation_width_pt
+):
     """Total visual lines the {витяг} cell will render for one entry — the
     sum of text_wrap.estimate_wrapped_line_count() over each of its
     paragraphs (_entry_fragment_lines), measured against the cell's real
     font size and usable width."""
     return sum(
-        estimate_wrapped_line_count(line, font_size_pt, first_line_width_pt, continuation_width_pt)
+        estimate_wrapped_line_count(
+            line, font_size_pt, first_line_width_pt, continuation_width_pt
+        )
         for line in _entry_fragment_lines(entry)
     )
 
 
-def _format_date_lines(entries, font_size_pt, first_line_width_pt, continuation_width_pt):
+def _format_date_lines(
+    entries, font_size_pt, first_line_width_pt, continuation_width_pt
+):
     """Builds the {дата} cell's (text, suppress_space_after) pairs: for a
     single-day entry (date_from == date_to), the date plus its time line;
     for a merged multi-day range, one "з ... по ..." line and no time line
@@ -347,12 +353,20 @@ def render_extract(entries, template_path, output_path):
     document = docx.Document(template_path)
 
     date_cell, date_paragraph = _find_placeholder_cell_and_paragraph(document, "{дата}")
-    fragment_cell, fragment_paragraph = _find_placeholder_cell_and_paragraph(document, "{витяг}")
-    _equalize_leading_blanks(date_cell, date_paragraph, fragment_cell, fragment_paragraph)
+    fragment_cell, fragment_paragraph = _find_placeholder_cell_and_paragraph(
+        document, "{витяг}"
+    )
+    _equalize_leading_blanks(
+        date_cell, date_paragraph, fragment_cell, fragment_paragraph
+    )
 
     font_size_pt = _run_font_size_pt(fragment_paragraph)
-    first_line_width_pt, continuation_width_pt = _fragment_line_widths_pt(fragment_cell, fragment_paragraph)
-    date_lines = _format_date_lines(entries, font_size_pt, first_line_width_pt, continuation_width_pt)
+    first_line_width_pt, continuation_width_pt = _fragment_line_widths_pt(
+        fragment_cell, fragment_paragraph
+    )
+    date_lines = _format_date_lines(
+        entries, font_size_pt, first_line_width_pt, continuation_width_pt
+    )
 
     _expand_multiline_placeholder(date_paragraph, date_lines)
     _expand_multiline_placeholder(fragment_paragraph, _format_fragment_lines(entries))

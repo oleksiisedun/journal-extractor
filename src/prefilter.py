@@ -43,7 +43,7 @@ def extract_full_name(rank_and_name):
             break
     if surname_idx is None:
         raise ValueError(f"Could not determine surname in: {rank_and_name!r}")
-    return " ".join(tokens[surname_idx:surname_idx + 3])
+    return " ".join(tokens[surname_idx : surname_idx + 3])
 
 
 def extract_surname(rank_and_name):
@@ -77,7 +77,10 @@ def select_ambiguous_window(windows, strategy):
         return windows[0]
     if strategy == "last":
         return windows[-1]
-    raise ValueError(f"Unknown FULL_NAME_AMBIGUITY_STRATEGY: {strategy!r} (expected 'first' or 'last')")
+    raise ValueError(
+        f"Unknown FULL_NAME_AMBIGUITY_STRATEGY: {strategy!r} "
+        "(expected 'first' or 'last')"
+    )
 
 
 def find_full_name_paragraph(paragraphs, window, full_name):
@@ -168,8 +171,11 @@ def find_preceding_label_header(paragraphs, anchor_index, lower_bound=0):
         if SURNAME_LIKE_PATTERN.search(without_quotes):
             continue  # someone else's own paragraph -- skip over it, keep walking back
         if i == anchor_index - 1:
-            return i  # weak (no-surname) fallback only trusted when directly adjacent
-        return None  # ambiguous line further back with neither strong signal nor a name -- stop rather than guess
+            # weak (no-surname) fallback only trusted when directly adjacent
+            return i
+        # ambiguous line further back with neither strong signal nor a
+        # name -- stop rather than guess
+        return None
     return None
 
 
@@ -189,9 +195,17 @@ def build_pointer(paragraphs, window, full_name):
         # full_name matched in the window's joined text but not within a
         # single paragraph (e.g. it spans a paragraph break) -- never
         # observed in real files; fail closed rather than guess.
-        return {"found": False, "context_paragraph_indices": [], "target_paragraph_index": -1}
+        return {
+            "found": False,
+            "context_paragraph_indices": [],
+            "target_paragraph_index": -1,
+        }
 
     order_idx = find_preceding_order_paragraph(paragraphs, anchor)
     label_idx = find_preceding_label_header(paragraphs, anchor, order_idx or 0)
     context = sorted({i for i in (order_idx, label_idx) if i is not None})
-    return {"found": True, "context_paragraph_indices": context, "target_paragraph_index": anchor}
+    return {
+        "found": True,
+        "context_paragraph_indices": context,
+        "target_paragraph_index": anchor,
+    }

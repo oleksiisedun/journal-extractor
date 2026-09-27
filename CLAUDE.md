@@ -508,3 +508,29 @@ the filename-separator variants (see `journals/`, gitignored):
   that fails loudly (never silently produces a degraded result), and (2)
   an entry in [docs/bug-log.md](docs/bug-log.md) with the real example
   that triggered it.
+
+## Static checks (lint / format / types)
+
+Not to be confused with the pipeline's own domain guardrails (step 7
+above, e.g. "target surname must appear in the final text") — this
+section is generic code-quality tooling, checked via `pyproject.toml`.
+
+Run `./check.sh` before committing a logic change (skip for a pure
+docs/comment/sample-data change). It runs, in order:
+- `ruff check src/` — lint (`select = ["E", "F", "I", "B", "UP", "SIM"]`
+  in `pyproject.toml`: pycodestyle, pyflakes, import sorting, bugbear,
+  pyupgrade, simplify).
+- `ruff format --check src/` — formatting. Run `ruff format src/` (no
+  `--check`) to fix in place.
+- `pyright src/` — type checking, `standard` mode. The codebase has no
+  type hints yet (JSDoc-style `@param`/`@returns` comments are used
+  instead, e.g. in `person_spec.py`) — `standard` mode still catches real
+  bugs from pyright's own inference (e.g. the `date | None` comparison
+  bug fixed alongside this guardrail's introduction) without requiring
+  hints to be added everywhere.
+
+Requires `ruff` and `pyright` installed (e.g. via `pipx install ruff
+pyright`) — not currently pinned anywhere, since the project has no dev
+dependency group yet (no `uv`/lockfile in use here; `run.sh` calls system
+`python3` directly and `python-docx`/`Pillow` are installed globally).
+Not wired into a git hook or CI — run manually.

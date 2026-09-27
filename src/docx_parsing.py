@@ -49,7 +49,9 @@ def load_paragraph_columns(docx_path):
             time_labels = []
             content_paragraphs = []
             time_raw_count = len(row.cells[0].paragraphs) if row.cells else 0
-            content_raw_count = len(row.cells[1].paragraphs) if len(row.cells) > 1 else 0
+            content_raw_count = (
+                len(row.cells[1].paragraphs) if len(row.cells) > 1 else 0
+            )
             for col, cell in enumerate(row.cells):
                 for raw_idx, p in enumerate(cell.paragraphs):
                     if not p.text.strip():
@@ -59,12 +61,18 @@ def load_paragraph_columns(docx_path):
                     elif col == 1:
                         content_paragraphs.append((idx, raw_idx, p.text))
                     idx += 1
-            rows_out.append({
-                "time_labels": time_labels,              # [(raw_col0_idx, text)]
-                "time_raw_count": time_raw_count,         # len(cell[0].paragraphs), incl. blanks
-                "content_paragraphs": content_paragraphs, # [(global_idx, raw_col1_idx, text)]
-                "content_raw_count": content_raw_count,   # len(cell[1].paragraphs), incl. blanks
-            })
+            rows_out.append(
+                {
+                    # [(raw_col0_idx, text)]
+                    "time_labels": time_labels,
+                    # len(cell[0].paragraphs), incl. blanks
+                    "time_raw_count": time_raw_count,
+                    # [(global_idx, raw_col1_idx, text)]
+                    "content_paragraphs": content_paragraphs,
+                    # len(cell[1].paragraphs), incl. blanks
+                    "content_raw_count": content_raw_count,
+                }
+            )
     return rows_out
 
 

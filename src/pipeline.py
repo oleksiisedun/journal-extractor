@@ -6,6 +6,8 @@ doesn't have to re-implement the not-found/ambiguous/guardrail branching
 inline.
 """
 
+from assembly import assemble_fragment
+from config import FULL_NAME_AMBIGUITY_STRATEGY
 from prefilter import (
     build_pointer,
     extract_full_name,
@@ -14,8 +16,6 @@ from prefilter import (
     find_candidate_windows,
     select_ambiguous_window,
 )
-from assembly import assemble_fragment
-from config import FULL_NAME_AMBIGUITY_STRATEGY
 
 
 def resolve_day_fragment(all_paragraphs, day_date, time_boundaries, full_name):
@@ -40,8 +40,12 @@ def resolve_day_fragment(all_paragraphs, day_date, time_boundaries, full_name):
 
     if not windows:
         # the surname isn't in this day's text at all
-        return {"status": "not_found", "result": None, "pointer": None,
-                "note": "surname not in this day's text"}
+        return {
+            "status": "not_found",
+            "result": None,
+            "pointer": None,
+            "note": "surname not in this day's text",
+        }
 
     # narrow by FULL name (not surname alone) - if this unambiguously
     # narrows to a single window, that window can't mix in another
@@ -52,15 +56,23 @@ def resolve_day_fragment(all_paragraphs, day_date, time_boundaries, full_name):
         # full name isn't verbatim anywhere in this day's text, even
         # though the surname is -- fail closed rather than guess from
         # weaker (surname-only) context
-        return {"status": "not_found", "result": None, "pointer": None,
-                "note": "full name not found verbatim in this day's text"}
+        return {
+            "status": "not_found",
+            "result": None,
+            "pointer": None,
+            "note": "full name not found verbatim in this day's text",
+        }
     elif len(narrowed) == 1:
         windows_to_use = narrowed
         narrowing_note = "unambiguously narrowed to 1 window by full name"
     else:
-        windows_to_use = [select_ambiguous_window(narrowed, FULL_NAME_AMBIGUITY_STRATEGY)]
-        narrowing_note = (f"warning: full name occurs verbatim in {len(narrowed)} different places - "
-                           f"genuine ambiguity, taking the {FULL_NAME_AMBIGUITY_STRATEGY} occurrence")
+        windows_to_use = [
+            select_ambiguous_window(narrowed, FULL_NAME_AMBIGUITY_STRATEGY)
+        ]
+        narrowing_note = (
+            f"warning: full name occurs verbatim in {len(narrowed)} different places - "
+            f"genuine ambiguity, taking the {FULL_NAME_AMBIGUITY_STRATEGY} occurrence"
+        )
 
     # target_paragraph_index is find_full_name_paragraph()'s result;
     # context_paragraph_indices is the governing order + label header,
@@ -69,17 +81,33 @@ def resolve_day_fragment(all_paragraphs, day_date, time_boundaries, full_name):
     pointer["_surname_check"] = surname  # for the sanity check in assemble_fragment
 
     if not pointer.get("found"):
-        return {"status": "not_found", "result": None, "pointer": pointer,
-                "note": "not found this day (check manually — gaps are never silently skipped)"}
+        return {
+            "status": "not_found",
+            "result": None,
+            "pointer": pointer,
+            "note": (
+                "not found this day (check manually — gaps are never silently skipped)"
+            ),
+        }
 
     try:
         result = assemble_fragment(
-            all_paragraphs, pointer,
-            date_value=day_date, time_boundaries=time_boundaries,
+            all_paragraphs,
+            pointer,
+            date_value=day_date,
+            time_boundaries=time_boundaries,
         )
     except ValueError as e:
-        return {"status": "rejected", "result": None, "pointer": pointer,
-                "note": f"NEEDS MANUAL REVIEW — guardrail rejected the result:\n{e}"}
+        return {
+            "status": "rejected",
+            "result": None,
+            "pointer": pointer,
+            "note": f"NEEDS MANUAL REVIEW — guardrail rejected the result:\n{e}",
+        }
 
-    return {"status": "found", "result": result, "pointer": pointer,
-            "note": narrowing_note}
+    return {
+        "status": "found",
+        "result": result,
+        "pointer": pointer,
+        "note": narrowing_note,
+    }

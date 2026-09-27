@@ -22,7 +22,11 @@ from datetime import date, timedelta
 
 from assembly import strip_coordinates, strip_location_labels
 from config import JOURNAL_DIR, OUTPUT_DIR, TEMPLATE_PATH, WORKING_GROUP_UNIT_PREFIX
-from docx_parsing import extract_date_from_filename, load_paragraph_columns, load_paragraphs
+from docx_parsing import (
+    extract_date_from_filename,
+    load_paragraph_columns,
+    load_paragraphs,
+)
 from merge import merge_consecutive_entries
 from person_spec import parse_person_spec
 from pipeline import resolve_day_fragment
@@ -57,7 +61,7 @@ def load_people(argv):
         if argv[0].lower().endswith((".doc", ".docx")):
             print(
                 f"{argv[0]!r} is a .docx file, not a name list. If it's a "
-                f"\"РОБОЧІ ГРУПИ\" report, use:\n"
+                f'"РОБОЧІ ГРУПИ" report, use:\n'
                 f"  ./run.sh --working-groups {argv[0]!r}"
             )
             sys.exit(1)
@@ -123,7 +127,7 @@ def generate_working_groups(docx_path, year_override=None):
         print(
             f"{os.path.basename(docx_path)!r} is a legacy binary .doc (not "
             f".docx), which is not supported. Save the file as .docx "
-            f"(Word/LibreOffice: \"Save a Copy\" → .docx) and try again."
+            f'(Word/LibreOffice: "Save a Copy" → .docx) and try again.'
         )
         sys.exit(1)
 
@@ -166,7 +170,9 @@ def generate_working_groups(docx_path, year_override=None):
         filename = build_working_group_filename(
             WORKING_GROUP_UNIT_PREFIX, compute_date_ranges(group), order_ids
         )
-        output_path = _dedupe_output_path(os.path.join(OUTPUT_DIR, filename), used_paths)
+        output_path = _dedupe_output_path(
+            os.path.join(OUTPUT_DIR, filename), used_paths
+        )
         used_paths.add(output_path)
 
         render_extract(entries, TEMPLATE_PATH, output_path)
@@ -187,7 +193,7 @@ def main():
             except (IndexError, ValueError):
                 print("Usage: ./run.sh --working-groups <file.docx> [--year YYYY]")
                 sys.exit(1)
-            del rest[idx:idx + 2]
+            del rest[idx : idx + 2]
         if len(rest) != 1:
             print("Usage: ./run.sh --working-groups <file.docx> [--year YYYY]")
             sys.exit(1)
@@ -197,7 +203,9 @@ def main():
     people = load_people(sys.argv[1:])
 
     docx_paths = []
-    for docx_path in glob.glob(os.path.join(JOURNAL_DIR, "**", "*.docx"), recursive=True):
+    for docx_path in glob.glob(
+        os.path.join(JOURNAL_DIR, "**", "*.docx"), recursive=True
+    ):
         try:
             extract_date_from_filename(docx_path)
         except ValueError:
@@ -221,12 +229,14 @@ def main():
         day_date = extract_date_from_filename(docx_path)
         content_row = max(columns, key=lambda r: len(r["content_paragraphs"]))
         time_boundaries = assign_time_boundaries(content_row)
-        days.append({
-            "filename": os.path.basename(docx_path),
-            "paragraphs": all_paragraphs,
-            "date": day_date,
-            "time_boundaries": time_boundaries,
-        })
+        days.append(
+            {
+                "filename": os.path.basename(docx_path),
+                "paragraphs": all_paragraphs,
+                "date": day_date,
+                "time_boundaries": time_boundaries,
+            }
+        )
 
     issue_date = date.today()
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -241,7 +251,7 @@ def main():
             print(f"  >>> Skipped person {person!r}: {e}")
             continue
 
-        if date_from is None:
+        if date_from is None or date_to is None:
             relevant_days = days
         else:
             relevant_days = [d for d in days if date_from <= d["date"] <= date_to]
@@ -258,7 +268,10 @@ def main():
         entries = []
         for day in relevant_days:
             outcome = resolve_day_fragment(
-                day["paragraphs"], day["date"], day["time_boundaries"], full_name,
+                day["paragraphs"],
+                day["date"],
+                day["time_boundaries"],
+                full_name,
             )
             if outcome["status"] == "found":
                 entries.append(outcome["result"])
@@ -270,7 +283,9 @@ def main():
             continue
 
         surname = extract_surname(full_name)
-        output_path = os.path.join(OUTPUT_DIR, f"Витяг_{surname}_{issue_date.isoformat()}.docx")
+        output_path = os.path.join(
+            OUTPUT_DIR, f"Витяг_{surname}_{issue_date.isoformat()}.docx"
+        )
         render_extract(merge_consecutive_entries(entries), TEMPLATE_PATH, output_path)
         print(f"  >>> Created: {output_path}")
 
