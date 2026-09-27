@@ -3,11 +3,13 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "=== ruff check ==="
-ruff check src/
+ruff check src/ tests/
 echo "=== ruff format --check ==="
-ruff format --check src/
+ruff format --check src/ tests/
 echo "=== pyright ==="
-pyright src/
+pyright
+echo "=== pytest ==="
+pytest
 echo "=== shellcheck ==="
 shellcheck run.sh check.sh
 echo "=== shfmt ==="

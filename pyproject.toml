@@ -15,5 +15,10 @@ target-version = "py312"
 select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.pyright]
-include = ["src"]
+include = ["src", "tests"]
+extraPaths = ["src"]
 typeCheckingMode = "standard"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
