@@ -17,6 +17,7 @@ match what's really on screen.
 import os
 
 from PIL import ImageFont
+from PIL.ImageFont import FreeTypeFont
 
 _FONT_PATH = os.path.join(
     os.path.dirname(__file__), "..", "assets", "fonts", "Carlito-Regular.ttf"
@@ -24,10 +25,10 @@ _FONT_PATH = os.path.join(
 # arbitrary large nominal size for measurement precision; scaled to the
 # real font size afterward
 _MEASURE_SIZE = 1000
-_font_cache = {}
+_font_cache: dict[int, FreeTypeFont] = {}
 
 
-def _measurement_font():
+def _measurement_font() -> FreeTypeFont:
     """Loads (and caches) the bundled Carlito font at a large nominal size
     for precise, scale-independent width measurement."""
     if _MEASURE_SIZE not in _font_cache:
@@ -35,7 +36,7 @@ def _measurement_font():
     return _font_cache[_MEASURE_SIZE]
 
 
-def _text_width_pt(text, font_size_pt):
+def _text_width_pt(text: str, font_size_pt: float) -> float:
     """Real width of `text` in points at `font_size_pt`, from Carlito's
     actual glyph advance widths rather than an average-character guess."""
     if text == "":
@@ -45,8 +46,11 @@ def _text_width_pt(text, font_size_pt):
 
 
 def estimate_wrapped_line_count(
-    text, font_size_pt, first_line_width_pt, continuation_width_pt
-):
+    text: str,
+    font_size_pt: float,
+    first_line_width_pt: float,
+    continuation_width_pt: float,
+) -> int:
     """Simulates greedy word-wrap of `text` (split on spaces, no
     hyphenation -- matching templates/1.docx's
     `<w:suppressAutoHyphens w:val="true"/>` docDefault) into lines no wider

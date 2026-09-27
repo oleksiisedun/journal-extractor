@@ -18,6 +18,7 @@ Two formats seen in real files, apparently never mixed within one day:
 
 import re
 
+from domain_types import Row, TimeBoundaries
 from patterns import ORDER_REF_PATTERN
 
 ROMAN_HEADER_PATTERN = re.compile(r"^[IVXІ]+\.")
@@ -25,7 +26,7 @@ ROMAN_HEADER_PATTERN = re.compile(r"^[IVXІ]+\.")
 INLINE_TIME_PATTERN = re.compile(r"^(\d{2}\.\d{2}(?:-\d{2}\.\d{2})?)\b")
 
 
-def extract_inline_time(text):
+def extract_inline_time(text: str) -> str | None:
     """Returns the time token at the very start of a content paragraph
     (e.g. '00.00' from '00.00 на виконання ...', or '05.00-06.40' from a
     ranged form), or None if the paragraph doesn't start with one. This is
@@ -34,7 +35,7 @@ def extract_inline_time(text):
     return match.group(1) if match else None
 
 
-def is_boundary_paragraph(text):
+def is_boundary_paragraph(text: str) -> bool:
     """A content paragraph is a plausible time-boundary point if it's a
     Roman-numeral section header, a list/section-intro line ending in ':'
     (e.g. 'на ПВ «БРАВО»:'), or an order-reference sentence (matches
@@ -49,17 +50,19 @@ def is_boundary_paragraph(text):
     )
 
 
-def _assign_time_boundaries_inline(content_paragraphs):
+def _assign_time_boundaries_inline(
+    content_paragraphs: list[tuple[int, int, str]],
+) -> TimeBoundaries:
     """The "easy case": content paragraphs that themselves start with a
     time token. Exact and verbatim-derived, so always "confident"."""
     return [
-        (global_idx, extract_inline_time(text), "confident")
+        (global_idx, time_value, "confident")
         for global_idx, raw_idx, text in sorted(content_paragraphs, key=lambda t: t[0])
-        if extract_inline_time(text)
+        if (time_value := extract_inline_time(text)) is not None
     ]
 
 
-def _assign_time_boundaries_left_column(row, slack):
+def _assign_time_boundaries_left_column(row: Row, slack: int) -> TimeBoundaries:
     """The "hard case": snap-to-nearest-boundary heuristic over the left
     time column. See the module-level comment above for why this can't be
     an exact lookup. For each time label, a proportional cut point is
@@ -83,7 +86,7 @@ def _assign_time_boundaries_left_column(row, slack):
         if is_boundary_paragraph(text)
     )
 
-    raw_assignments = []
+    raw_assignments: list[tuple[int, str, bool]] = []
     for label_raw_idx, time_value in time_labels:
         cut_point = round(label_raw_idx / (left_raw_count - 1) * (right_raw_count - 1))
         snapped = next((b for b in boundary_candidates if b[0] >= cut_point), None)
@@ -91,16 +94,16 @@ def _assign_time_boundaries_left_column(row, slack):
             continue  # no boundary left to snap to — this label can't be placed
         snapped_raw_idx, snapped_global_idx = snapped
         confident = abs(snapped_raw_idx - cut_point) <= slack
-        raw_assignments.append([snapped_global_idx, time_value, confident])
+        raw_assignments.append((snapped_global_idx, time_value, confident))
 
-    collapsed = []
+    collapsed: list[tuple[int, str, bool]] = []
     for global_idx, time_value, confident in raw_assignments:
         if collapsed and collapsed[-1][0] == global_idx:
             # two labels snapped to the same boundary — ambiguous which one
             # actually governs it; keep the later (more specific) time
-            collapsed[-1] = [global_idx, time_value, False]
+            collapsed[-1] = (global_idx, time_value, False)
         else:
-            collapsed.append([global_idx, time_value, confident])
+            collapsed.append((global_idx, time_value, confident))
 
     return [
         (global_idx, time_value, "confident" if confident else "uncertain")
@@ -108,7 +111,7 @@ def _assign_time_boundaries_left_column(row, slack):
     ]
 
 
-def assign_time_boundaries(row, slack=15):
+def assign_time_boundaries(row: Row, slack: int = 15) -> TimeBoundaries:
     """Deterministically maps a table row's time information onto its
     content-column paragraphs. Returns an ascending list of
     (global_content_index, time_value, confidence) tuples, where
@@ -130,7 +133,9 @@ def assign_time_boundaries(row, slack=15):
     return _assign_time_boundaries_left_column(row, slack)
 
 
-def time_for_paragraph(boundaries, target_global_idx):
+def time_for_paragraph(
+    boundaries: TimeBoundaries, target_global_idx: int
+) -> tuple[str, str] | None:
     """Looks up the (time_value, confidence) governing a given global
     content paragraph index: the boundary assignment with the largest
     global_content_index <= target_global_idx. Returns None if the target

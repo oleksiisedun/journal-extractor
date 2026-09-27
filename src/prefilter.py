@@ -7,10 +7,13 @@ context."""
 
 import re
 
+from domain_types import Paragraphs, Pointer, Window
 from patterns import ORDER_REF_PATTERN
 
 
-def find_candidate_windows(paragraphs, surname, window=8):
+def find_candidate_windows(
+    paragraphs: Paragraphs, surname: str, window: int = 8
+) -> list[Window]:
     """Deterministic prefilter (no LLM): paragraph windows around mentions
     of the SURNAME, not the full name — avoids losing namesakes at this
     stage."""
@@ -22,7 +25,7 @@ def find_candidate_windows(paragraphs, surname, window=8):
 
     raw_windows = [(max(0, i - window), min(max_idx, i + 1)) for i in hits]
     raw_windows.sort()
-    merged = [raw_windows[0]]
+    merged: list[Window] = [raw_windows[0]]
     for lo, hi in raw_windows[1:]:
         if lo <= merged[-1][1] + 1:
             merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
@@ -31,7 +34,7 @@ def find_candidate_windows(paragraphs, surname, window=8):
     return merged
 
 
-def extract_full_name(rank_and_name):
+def extract_full_name(rank_and_name: str) -> str:
     """Surname + first name + patronymic (without rank) — for narrower
     candidate filtering than searching by surname alone."""
     tokens = rank_and_name.split()
@@ -46,19 +49,21 @@ def extract_full_name(rank_and_name):
     return " ".join(tokens[surname_idx : surname_idx + 3])
 
 
-def extract_surname(rank_and_name):
+def extract_surname(rank_and_name: str) -> str:
     """The surname is normally written in UPPERCASE, and is always the
     first token of extract_full_name()'s result — reuse that lookup rather
     than re-scanning for the uppercase token a second time."""
     return extract_full_name(rank_and_name).split()[0]
 
 
-def filter_windows_by_full_name(paragraphs, windows, full_name):
+def filter_windows_by_full_name(
+    paragraphs: Paragraphs, windows: list[Window], full_name: str
+) -> list[Window]:
     """Narrows surname-based windows down to the ones where the FULL name
     occurs verbatim, removing ambiguity before the LLM call rather than
     relying on the model to pick the right window."""
     para_dict = dict(paragraphs)
-    matched = []
+    matched: list[Window] = []
     for lo, hi in windows:
         text = " ".join(para_dict[i] for i in range(lo, hi + 1))
         if full_name.upper() in text.upper():
@@ -66,7 +71,7 @@ def filter_windows_by_full_name(paragraphs, windows, full_name):
     return matched
 
 
-def select_ambiguous_window(windows, strategy):
+def select_ambiguous_window(windows: list[Window], strategy: str) -> Window:
     """Picks a single window when the full name matched verbatim in more
     than one place (genuine ambiguity, e.g. two identically-named people).
     `windows` must be pre-sorted in file order, as returned by
@@ -83,7 +88,9 @@ def select_ambiguous_window(windows, strategy):
     )
 
 
-def find_full_name_paragraph(paragraphs, window, full_name):
+def find_full_name_paragraph(
+    paragraphs: Paragraphs, window: Window, full_name: str
+) -> int | None:
     """Returns the index of the single paragraph within `window` that
     contains the full name verbatim -- the anchor the target almost
     certainly sits on -- or None if no single paragraph in the window
@@ -97,7 +104,9 @@ def find_full_name_paragraph(paragraphs, window, full_name):
     return None
 
 
-def find_preceding_order_paragraph(paragraphs, anchor_index):
+def find_preceding_order_paragraph(
+    paragraphs: Paragraphs, anchor_index: int
+) -> int | None:
     """Walks backward from `anchor_index` for the nearest paragraph matching
     ORDER_REF_PATTERN -- the section/order header that actually governs the
     anchor. This can sit much further back than the fixed ±window: a single
@@ -124,7 +133,9 @@ SURNAME_LIKE_PATTERN = re.compile(r"[А-ЯЁІЇЄҐ]{3,}")
 QUOTED_LABEL_PATTERN = re.compile(r"«[^»]*»")
 
 
-def find_preceding_label_header(paragraphs, anchor_index, lower_bound=0):
+def find_preceding_label_header(
+    paragraphs: Paragraphs, anchor_index: int, lower_bound: int = 0
+) -> int | None:
     """Walks backward from `anchor_index` (exclusive) down to `lower_bound`
     (exclusive -- normally find_preceding_order_paragraph()'s result, so
     the search never wanders into an earlier, unrelated section) for the
@@ -179,7 +190,7 @@ def find_preceding_label_header(paragraphs, anchor_index, lower_bound=0):
     return None
 
 
-def build_pointer(paragraphs, window, full_name):
+def build_pointer(paragraphs: Paragraphs, window: Window, full_name: str) -> Pointer:
     """Deterministically builds the pointer dict describing where a
     person's entry sits -- replaces the local LLM call this project used
     to make. Full-name narrowing (filter_windows_by_full_name()) has

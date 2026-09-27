@@ -11,11 +11,17 @@ on the chronological "found" days, so `entries` here carries "date_from"/
 
 import copy
 import os
+from typing import Any
 
 import docx
+from docx.document import Document as DocxDocument
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.table import _Cell
+from docx.text.paragraph import Paragraph
 
+from date_formatting import format_date, format_date_span
+from domain_types import MergedEntry
 from text_wrap import estimate_wrapped_line_count
 
 TWIPS_PER_POINT = 20
@@ -29,7 +35,9 @@ DEFAULT_CELL_MARGIN_TWIPS = 108
 DEFAULT_FONT_SIZE_PT = 10.0
 
 
-def _find_placeholder_cell_and_paragraph(document, placeholder):
+def _find_placeholder_cell_and_paragraph(
+    document: DocxDocument, placeholder: str
+) -> tuple[_Cell, Paragraph]:
     """Finds the table cell and paragraph whose entire text is exactly
     `placeholder` (e.g. '{дата}', '{витяг}') — in the real template each
     one is the sole content of its own paragraph. Returns the cell too
@@ -44,7 +52,7 @@ def _find_placeholder_cell_and_paragraph(document, placeholder):
     raise ValueError(f"Placeholder {placeholder!r} not found in template")
 
 
-def _placeholder_prefix_length(cell, placeholder_paragraph):
+def _placeholder_prefix_length(cell: _Cell, placeholder_paragraph: Paragraph) -> int:
     """Counts how many paragraphs precede `placeholder_paragraph` at the
     start of `cell` — its static, pre-existing template content (e.g. the
     {витяг} cell's fixed "V. Хід бойових дій" header + blank line).
@@ -60,7 +68,7 @@ def _placeholder_prefix_length(cell, placeholder_paragraph):
     return count
 
 
-def _remove_leading_blanks(cell, count):
+def _remove_leading_blanks(cell: _Cell, count: int) -> None:
     """Deletes up to `count` blank paragraphs from the start of `cell`,
     stopping early if a non-blank paragraph is reached first — so real
     static template content (e.g. the {витяг} cell's "V. Хід бойових дій"
@@ -74,8 +82,11 @@ def _remove_leading_blanks(cell, count):
 
 
 def _equalize_leading_blanks(
-    date_cell, date_paragraph, fragment_cell, fragment_paragraph
-):
+    date_cell: _Cell,
+    date_paragraph: Paragraph,
+    fragment_cell: _Cell,
+    fragment_paragraph: Paragraph,
+) -> None:
     """The real template has a different number of static leading
     paragraphs before {дата} (3 blanks) than before {витяг} (1 "V. Хід
     бойових дій" header line + 1 blank) — 3 vs 2. Even after
@@ -95,7 +106,7 @@ def _equalize_leading_blanks(
         _remove_leading_blanks(fragment_cell, fragment_prefix - date_prefix)
 
 
-def _zero_space_after(p_element):
+def _zero_space_after(p_element: Any) -> None:
     """Sets a cloned paragraph's space-after to 0 twips — used for {дата}
     filler lines that stand in for one wrapped continuation line inside a
     single {витяг} paragraph. Word only charges space-after once per
@@ -114,7 +125,9 @@ def _zero_space_after(p_element):
     spacing.set(qn("w:after"), "0")
 
 
-def _expand_multiline_placeholder(paragraph, lines):
+def _expand_multiline_placeholder(
+    paragraph: Paragraph, lines: list[tuple[str, bool]]
+) -> None:
     """Replaces a paragraph whose only content is a placeholder run with
     one paragraph per (text, suppress_space_after) pair in `lines` (empty
     text renders as a blank paragraph, matching how real extract samples
@@ -145,7 +158,7 @@ def _expand_multiline_placeholder(paragraph, lines):
     parent.remove(p_element)
 
 
-def _format_time_line(entry):
+def _format_time_line(entry: MergedEntry) -> str | None:
     """One line for a single-day entry's time: the raw value as-is,
     confident or uncertain alike. Returns None when no time could be
     resolved at all, so the caller omits the line rather than presenting a
@@ -153,14 +166,14 @@ def _format_time_line(entry):
     return entry["time"]
 
 
-def _entry_fragment_lines(entry):
+def _entry_fragment_lines(entry: MergedEntry) -> list[str]:
     """The {витяг} cell's paragraph lines for one entry — its already-
     assembled verbatim text split on the paragraph breaks assembly.py
     joined with "\\n"."""
     return entry["text"].split("\n")
 
 
-def _cell_margin_twips(cell, side):
+def _cell_margin_twips(cell: _Cell, side: str) -> int:
     """`cell`'s horizontal margin (side is "start" or "end") in twips: the
     cell's own tcMar override if present, else the enclosing table's
     default tblCellMar, else OOXML's built-in default
@@ -184,7 +197,7 @@ def _cell_margin_twips(cell, side):
     return DEFAULT_CELL_MARGIN_TWIPS
 
 
-def _paragraph_first_line_indent_twips(paragraph):
+def _paragraph_first_line_indent_twips(paragraph: Paragraph) -> int:
     """`paragraph`'s first-line indent in twips (0 if unset) — the real
     template applies one to every {витяг} paragraph (a "red line" indent
     convention), which shrinks the usable width of a paragraph's first
@@ -199,7 +212,7 @@ def _paragraph_first_line_indent_twips(paragraph):
     return 0
 
 
-def _run_font_size_pt(paragraph):
+def _run_font_size_pt(paragraph: Paragraph) -> float:
     """Font size in points used by `paragraph`'s text — its first run's
     explicit size if set (the case for the {витяг} placeholder, whose
     formatting _expand_multiline_placeholder() clones onto every inserted
@@ -218,12 +231,19 @@ def _run_font_size_pt(paragraph):
     return DEFAULT_FONT_SIZE_PT
 
 
-def _fragment_line_widths_pt(fragment_cell, fragment_paragraph):
+def _fragment_line_widths_pt(
+    fragment_cell: _Cell, fragment_paragraph: Paragraph
+) -> tuple[float, float]:
     """Returns (first_line_width_pt, continuation_width_pt) — the {витяг}
     cell's real usable text width for a paragraph's first line (reduced by
     its first-line indent) and for every line after, computed from
     templates/1.docx's actual cell width, margins, and indent rather than
     assumed."""
+    if fragment_cell.width is None:
+        raise ValueError(
+            "{витяг} cell has no explicit width in templates/1.docx — the "
+            "column-alignment math needs a real cell width to measure against."
+        )
     usable_twips = (
         fragment_cell.width.twips
         - _cell_margin_twips(fragment_cell, "start")
@@ -236,8 +256,11 @@ def _fragment_line_widths_pt(fragment_cell, fragment_paragraph):
 
 
 def _entry_visual_line_count(
-    entry, font_size_pt, first_line_width_pt, continuation_width_pt
-):
+    entry: MergedEntry,
+    font_size_pt: float,
+    first_line_width_pt: float,
+    continuation_width_pt: float,
+) -> int:
     """Total visual lines the {витяг} cell will render for one entry — the
     sum of text_wrap.estimate_wrapped_line_count() over each of its
     paragraphs (_entry_fragment_lines), measured against the cell's real
@@ -251,8 +274,11 @@ def _entry_visual_line_count(
 
 
 def _format_date_lines(
-    entries, font_size_pt, first_line_width_pt, continuation_width_pt
-):
+    entries: list[MergedEntry],
+    font_size_pt: float,
+    first_line_width_pt: float,
+    continuation_width_pt: float,
+) -> list[tuple[str, bool]]:
     """Builds the {дата} cell's (text, suppress_space_after) pairs: for a
     single-day entry (date_from == date_to), the date plus its time line;
     for a merged multi-day range, one "з ... по ..." line and no time line
@@ -288,20 +314,18 @@ def _format_date_lines(
     the whole row) taller than the content needs, leaving a gap at the
     bottom of the table. Blank-line separated between entries (none
     trailing); the separator keeps normal space-after."""
-    lines = []
+    lines: list[tuple[str, bool]] = []
     for i, entry in enumerate(entries):
         if i > 0:
             lines.append(("", False))
         entry_lines = []
-        date_from = entry["date_from"].strftime("%d.%m.%Y")
         if entry["date_from"] == entry["date_to"]:
-            entry_lines.append(date_from)
+            entry_lines.append(format_date(entry["date_from"]))
             time_line = _format_time_line(entry)
             if time_line is not None:
                 entry_lines.append(time_line)
         else:
-            date_to = entry["date_to"].strftime("%d.%m.%Y")
-            entry_lines.append(f"з {date_from} по {date_to}")
+            entry_lines.append(format_date_span(entry["date_from"], entry["date_to"]))
         entry_pairs = [(line, False) for line in entry_lines]
         if i < len(entries) - 1:
             visual_line_count = _entry_visual_line_count(
@@ -318,13 +342,13 @@ def _format_date_lines(
     return lines
 
 
-def _format_fragment_lines(entries):
+def _format_fragment_lines(entries: list[MergedEntry]) -> list[tuple[str, bool]]:
     """Builds the {витяг} cell's (text, suppress_space_after) pairs: each
     entry's already-assembled verbatim text split on its own paragraph
     breaks (always normal space-after — suppression is only ever needed
     for {дата}'s filler lines), blank-line separated between entries (none
     trailing)."""
-    lines = []
+    lines: list[tuple[str, bool]] = []
     for i, entry in enumerate(entries):
         if i > 0:
             lines.append(("", False))
@@ -332,7 +356,9 @@ def _format_fragment_lines(entries):
     return lines
 
 
-def render_extract(entries, template_path, output_path):
+def render_extract(
+    entries: list[MergedEntry], template_path: str, output_path: str
+) -> None:
     """Fills `template_path` with `entries` (a chronological list of
     merge.merge_consecutive_entries()'s result dicts — {"text", "date_from",
     "date_to", "time", "time_confidence"} — for one person's "found" days

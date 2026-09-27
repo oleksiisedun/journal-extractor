@@ -4,7 +4,9 @@ prefilter.build_pointer(), runs guardrails, applies the one allowed
 punctuation fix, and attaches date/time metadata."""
 
 import re
+from datetime import date
 
+from domain_types import Fragment, Paragraphs, Pointer, TimeBoundaries
 from patterns import ORDER_REF_PATTERN
 from time_extraction import time_for_paragraph
 
@@ -32,7 +34,7 @@ LOCATION_LABEL_PATTERN = re.compile(
 )
 
 
-def _normalize_stripped_whitespace(text):
+def _normalize_stripped_whitespace(text: str) -> str:
     """Cleans up leftover spacing after a phrase has been cut out of
     `text`: collapses runs of 2+ spaces/tabs, drops a space/tab now
     stranded directly before punctuation, and trims trailing spaces/tabs
@@ -44,7 +46,7 @@ def _normalize_stripped_whitespace(text):
     return text
 
 
-def extract_order_refs(text):
+def extract_order_refs(text: str) -> set[str]:
     """Extracts order/directive numbers of the form №БР42/Б3/7Р/ДСК from
     text. Whitespace after № is stripped before comparison so the same
     order isn't treated as two different ones just because one mention
@@ -53,7 +55,7 @@ def extract_order_refs(text):
     return {re.sub(r"\s+", "", ref) for ref in ORDER_REF_PATTERN.findall(text)}
 
 
-def strip_coordinates(text):
+def strip_coordinates(text: str) -> str:
     """Removes MGRS-style grid coordinates (e.g. '37U CR 1234 5678'), including
     semicolon-separated lists of them, from the given text. Coordinates are
     tactical/operational data and must never appear in the generated
@@ -63,7 +65,7 @@ def strip_coordinates(text):
     'район зосередження')."""
     text = COORDINATE_PATTERN.sub("", text)
 
-    def _drop_if_empty(match):
+    def _drop_if_empty(match: re.Match[str]) -> str:
         inner = match.group(1)
         return "" if re.fullmatch(r"[\s;]*", inner) else match.group(0)
 
@@ -78,7 +80,7 @@ def strip_coordinates(text):
     return _normalize_stripped_whitespace(text)
 
 
-def strip_location_labels(text):
+def strip_location_labels(text: str) -> str:
     """Removes the phrase 'район зосередження' and its grammatical variants
     (районі, району, зосередженню, ...) from text, swallowing an immediately
     preceding preposition (у/в/на) so no dangling preposition is left. Like
@@ -90,7 +92,12 @@ def strip_location_labels(text):
     return _normalize_stripped_whitespace(text)
 
 
-def assemble_fragment(paragraphs, pointer, date_value=None, time_boundaries=None):
+def assemble_fragment(
+    paragraphs: Paragraphs,
+    pointer: Pointer,
+    date_value: date | None = None,
+    time_boundaries: TimeBoundaries | None = None,
+) -> Fragment | None:
     """Deterministically assembles the final fragment from the pointer
     built by prefilter.build_pointer() — slices source text, runs
     guardrails, applies the one allowed punctuation fix. Also attaches the

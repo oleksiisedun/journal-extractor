@@ -12,9 +12,13 @@ byte-verbatim; see generate_extract.py's generate_working_groups().
 """
 
 import re
+from collections.abc import Iterable
 from datetime import date, timedelta
 
 from docx import Document
+
+from date_formatting import format_date, format_date_span
+from domain_types import WorkingGroupBlock
 
 DATE_HEADER_PATTERN = re.compile(r"^\d{2}\.\d{2}$")
 
@@ -39,7 +43,7 @@ ITEM_START_PATTERN = re.compile(
 WORKING_GROUP_ORDER_REF_PATTERN = re.compile(r"(?:№\s*(?:БР\s*)?|БР\s*)(\d{3,5})\s*/")
 
 
-def _extract_order_ids(text):
+def _extract_order_ids(text: str) -> list[str]:
     """Distinct order-number tokens referenced in `text`, in
     first-appearance order, always displayed with a 'БР' prefix -- the
     same order number is written with and without 'БР' in different
@@ -48,11 +52,8 @@ def _extract_order_ids(text):
     literal transcription of that one occurrence's source formatting;
     dedup keys on the bare digits so both spellings collapse to one token
     ('БР1927') instead of appearing as two different order ids for what is
-    the same order.
-    @param {str} text
-    @returns {list[str]}
-    """
-    seen = {}
+    the same order."""
+    seen: dict[str, str] = {}
     for match in WORKING_GROUP_ORDER_REF_PATTERN.finditer(text):
         digits = match.group(1)
         if digits not in seen:
@@ -60,7 +61,9 @@ def _extract_order_ids(text):
     return list(seen.values())
 
 
-def parse_working_group_blocks(docx_path, year_override=None):
+def parse_working_group_blocks(
+    docx_path: str, year_override: int | None = None
+) -> list[WorkingGroupBlock]:
     """Extracts every reporting item from `docx_path` as a block dict
     ({"date", "text", "time", "order_ids"}), in document order. `text` is
     the paragraph's content AFTER its leading date-override/time-range
@@ -82,13 +85,9 @@ def parse_working_group_blocks(docx_path, year_override=None):
     `year_override` when that's not the case, e.g. processing a December
     report in January). A paragraph that's neither blank, a date header,
     nor a recognized item is skipped with a loud warning rather than
-    aborting the whole file.
-    @param {str} docx_path
-    @param {int|None} year_override
-    @returns {list[dict]}
-    """
+    aborting the whole file."""
     document = Document(docx_path)
-    blocks = []
+    blocks: list[WorkingGroupBlock] = []
     current_section_date = None  # (day, month), no year -- from the source
 
     for paragraph in document.paragraphs:
@@ -135,7 +134,9 @@ def parse_working_group_blocks(docx_path, year_override=None):
     return blocks
 
 
-def group_consecutive_identical_blocks(blocks):
+def group_consecutive_identical_blocks(
+    blocks: list[WorkingGroupBlock],
+) -> list[list[WorkingGroupBlock]]:
     """Groups `blocks` (must already be sorted chronologically by "date",
     and already carrying each block's final, fully-processed "text") into
     one group per distinct normalized text value (`_normalize_for_grouping()`
@@ -168,14 +169,11 @@ def group_consecutive_identical_blocks(blocks):
     text-with-every-occurrence-kept-separate).
 
     Returned groups are sorted by their earliest date, for a predictable,
-    chronological order of output files.
-    @param {list[dict]} blocks
-    @returns {list[list[dict]]}
-    """
+    chronological order of output files."""
     if not blocks:
         return []
 
-    by_text = {}
+    by_text: dict[str, list[WorkingGroupBlock]] = {}
     for block in blocks:
         by_text.setdefault(_normalize_for_grouping(block["text"]), []).append(block)
 
@@ -184,7 +182,7 @@ def group_consecutive_identical_blocks(blocks):
     return groups
 
 
-def compute_date_ranges(blocks):
+def compute_date_ranges(blocks: list[WorkingGroupBlock]) -> list[tuple[date, date]]:
     """Partitions `blocks`' distinct dates into runs of chronologically-
     consecutive calendar days, e.g. dates [02.07, 03.07, 05.07] (a gap at
     04.07) become [(02.07, 03.07), (05.07, 05.07)]. Used to build a
@@ -194,12 +192,9 @@ def compute_date_ranges(blocks):
     a gap group_consecutive_identical_blocks() no longer breaks on.
     Duplicate dates (two same-text blocks on one day) collapse to one
     calendar day and never split a range on their own, since a zero-day
-    gap isn't a real gap.
-    @param {list[dict]} blocks
-    @returns {list[tuple[datetime.date, datetime.date]]}
-    """
+    gap isn't a real gap."""
     dates = sorted({block["date"] for block in blocks})
-    ranges = []
+    ranges: list[tuple[date, date]] = []
     start = prev = dates[0]
     for current in dates[1:]:
         if current == prev + timedelta(days=1):
@@ -220,31 +215,25 @@ _GROUPING_PUNCTUATION_CHARS = ".,;:!?()\"'«»-–—"
 _GROUPING_PUNCTUATION_TABLE = str.maketrans("", "", _GROUPING_PUNCTUATION_CHARS)
 
 
-def _normalize_for_grouping(text):
+def _normalize_for_grouping(text: str) -> str:
     """Comparison key for group_consecutive_identical_blocks(): strips
     punctuation marks and collapses the whitespace that stripping them can
     leave behind, so two blocks whose text differs only in punctuation
     (e.g. one day's item ends in ';', another's in '.', or a comma where
     another has a semicolon) are still recognized as the same recurring
     item. Comparison-only -- each block keeps its own untouched text for
-    rendering.
-    @param {str} text
-    @returns {str}
-    """
+    rendering."""
     stripped = text.translate(_GROUPING_PUNCTUATION_TABLE)
     return re.sub(r"\s+", " ", stripped).strip()
 
 
-def union_order_ids(order_id_lists):
+def union_order_ids(order_id_lists: Iterable[list[str]]) -> list[str]:
     """Unions several blocks' order_ids lists into one, deduped, in
     first-appearance order across the lists -- used when several blocks
     are grouped into one output file, so no order id is silently dropped
     from the filename even in the unlikely case a group's members don't
-    all cite it identically.
-    @param {list[list[str]]} order_id_lists
-    @returns {list[str]}
-    """
-    seen = []
+    all cite it identically."""
+    seen: list[str] = []
     for order_ids in order_id_lists:
         for order_id in order_ids:
             if order_id not in seen:
@@ -252,7 +241,9 @@ def union_order_ids(order_id_lists):
     return seen
 
 
-def build_working_group_filename(unit_prefix, date_ranges, order_ids):
+def build_working_group_filename(
+    unit_prefix: str, date_ranges: list[tuple[date, date]], order_ids: list[str]
+) -> str:
     """Output filename for one group's blocks, e.g. '3 боп витяг жбд за
     21.07.2026 БР2418.docx' for a single day, '3 боп витяг жбд з
     06.06.2026 по 08.06.2026 БР1596.docx' for one contiguous run (same "з
@@ -266,26 +257,19 @@ def build_working_group_filename(unit_prefix, date_ranges, order_ids):
     show, e.g. '3 боп витяг жбд 02.07.2026-05.07.2026 10.07.2026-11.07.2026
     20.07.2026-31.07.2026 БР1927.docx'. Every distinct order id across the
     group is included, space-separated, in first-appearance order -- no
-    cap.
-    @param {str} unit_prefix
-    @param {list[tuple[datetime.date, datetime.date]]} date_ranges -- from
-        compute_date_ranges(), sorted chronologically, at least one entry
-    @param {list[str]} order_ids
-    @returns {str}
-    """
+    cap. `date_ranges` is compute_date_ranges()'s result, sorted
+    chronologically, always at least one entry."""
     if len(date_ranges) == 1:
         date_from, date_to = date_ranges[0]
         if date_from == date_to:
-            date_part = f"за {date_from.strftime('%d.%m.%Y')}"
+            date_part = f"за {format_date(date_from)}"
         else:
-            date_part = (
-                f"з {date_from.strftime('%d.%m.%Y')} по {date_to.strftime('%d.%m.%Y')}"
-            )
+            date_part = format_date_span(date_from, date_to)
     else:
         date_part = " ".join(
-            date_from.strftime("%d.%m.%Y")
+            format_date(date_from)
             if date_from == date_to
-            else f"{date_from.strftime('%d.%m.%Y')}-{date_to.strftime('%d.%m.%Y')}"
+            else f"{format_date(date_from)}-{format_date(date_to)}"
             for date_from, date_to in date_ranges
         )
     order_part = " ".join(order_ids)

@@ -7,12 +7,14 @@ from datetime import date
 
 from docx import Document
 
+from domain_types import Paragraphs, Row
 
-def load_paragraphs(docx_path):
+
+def load_paragraphs(docx_path: str) -> Paragraphs:
     """Extracts all non-empty paragraphs with continuous numbering, verbatim
     (no pandoc/reflow)."""
     doc = Document(docx_path)
-    result = []
+    result: Paragraphs = []
     idx = 0
     for table in doc.tables:
         for row in table.rows:
@@ -24,7 +26,7 @@ def load_paragraphs(docx_path):
     return result
 
 
-def load_paragraph_columns(docx_path):
+def load_paragraph_columns(docx_path: str) -> list[Row]:
     """Column-aware companion to load_paragraphs(), for the time-of-day
     extraction heuristic (see assign_time_boundaries()). Walks the same
     table/row/cell structure in the same order, so global indices for
@@ -42,12 +44,12 @@ def load_paragraph_columns(docx_path):
     re-validate against other journal templates if the layout ever differs.
     """
     doc = Document(docx_path)
-    rows_out = []
+    rows_out: list[Row] = []
     idx = 0
     for table in doc.tables:
         for row in table.rows:
-            time_labels = []
-            content_paragraphs = []
+            time_labels: list[tuple[int, str]] = []
+            content_paragraphs: list[tuple[int, int, str]] = []
             time_raw_count = len(row.cells[0].paragraphs) if row.cells else 0
             content_raw_count = (
                 len(row.cells[1].paragraphs) if len(row.cells) > 1 else 0
@@ -79,7 +81,7 @@ def load_paragraph_columns(docx_path):
 FILENAME_DATE_PATTERN = re.compile(r"(\d{2})[_.\-](\d{2})[_.\-](\d{4})")
 
 
-def extract_date_from_filename(docx_path):
+def extract_date_from_filename(docx_path: str) -> date:
     """Extracts the day's date from a journal filename (e.g. 'ЖБД_02_04_2026.docx',
     'ЖБД 10.07.2026.docx', 'ЖБД_12-04-2026.docx' -> 2026-04-02 / 2026-07-10 /
     2026-04-12, Ukrainian day-first convention). The separator between the

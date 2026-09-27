@@ -18,7 +18,7 @@ PERSON_DATE_PATTERN = re.compile(
 )
 
 
-def _parse_ddmmyyyy(token):
+def _parse_ddmmyyyy(token: str) -> date:
     """Parses a single 'DD.MM.YYYY' token (day-first, matching the
     project's existing filename-date convention)."""
     day, month, year = (int(part) for part in token.split("."))
@@ -28,16 +28,13 @@ def _parse_ddmmyyyy(token):
         raise ValueError(f"Invalid date {token!r}: {e}") from e
 
 
-def parse_person_spec(raw):
+def parse_person_spec(raw: str) -> tuple[str, date | None, date | None]:
     """Splits a person CLI spec into (full_name, date_from, date_to).
     `full_name` is the 'rank SURNAME Firstname Patronymic' portion with any
     trailing date/range stripped; `date_from`/`date_to` are inclusive
     `date` bounds, or (None, None) if no date/range was appended (search
     every day, current/default behavior). A single date is treated as a
-    one-day range (date_from == date_to).
-    @param {str} raw
-    @returns {tuple[str, date|None, date|None]}
-    """
+    one-day range (date_from == date_to)."""
     match = PERSON_DATE_PATTERN.search(raw)
     if not match:
         return raw.strip(), None, None

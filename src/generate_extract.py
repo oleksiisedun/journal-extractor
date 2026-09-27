@@ -27,6 +27,7 @@ from docx_parsing import (
     load_paragraph_columns,
     load_paragraphs,
 )
+from domain_types import DayRecord, Fragment, MergedEntry, WorkingGroupBlock
 from merge import merge_consecutive_entries
 from person_spec import parse_person_spec
 from pipeline import resolve_day_fragment
@@ -42,17 +43,14 @@ from working_groups import (
 )
 
 
-def load_people(argv):
+def load_people(argv: list[str]) -> list[str]:
     """People to extract, from CLI args: either raw "rank SURNAME
     Firstname Patronymic [DD.MM.YYYY[-DD.MM.YYYY]]" strings passed
     directly, or -- if `argv` is a single existing file path -- one such
     string per non-blank line of that file. The trailing date/date-range
     is optional and, when present, restricts that person's search to
     those day(s) instead of every file in journals/ -- see
-    person_spec.parse_person_spec().
-    @param {list[str]} argv
-    @returns {list[str]}
-    """
+    person_spec.parse_person_spec()."""
     if not argv:
         print("Usage: ./run.sh <name> [<name> ...] | <names.txt>")
         sys.exit(1)
@@ -79,15 +77,11 @@ def load_people(argv):
     return argv
 
 
-def _dedupe_output_path(path, used_paths):
+def _dedupe_output_path(path: str, used_paths: set[str]) -> str:
     """Returns `path` unchanged if not already in `used_paths`, else
     appends a " (2)", " (3)", ... suffix before the extension until it's
     unique -- two working-group blocks can land on the exact same date +
-    order-id set and would otherwise silently overwrite each other.
-    @param {str} path
-    @param {set[str]} used_paths
-    @returns {str}
-    """
+    order-id set and would otherwise silently overwrite each other."""
     if path not in used_paths:
         return path
     base, ext = os.path.splitext(path)
@@ -99,7 +93,7 @@ def _dedupe_output_path(path, used_paths):
     return deduped
 
 
-def generate_working_groups(docx_path, year_override=None):
+def generate_working_groups(docx_path: str, year_override: int | None = None) -> None:
     """Entry point for --working-groups mode: one extract .docx per run of
     chronologically-consecutive reporting blocks whose text matches once
     punctuation marks are ignored (a recurring item, only date/time --
@@ -107,14 +101,11 @@ def generate_working_groups(docx_path, year_override=None):
     working-groups report, instead of the usual one-per-person-across-
     many-days extract. See working_groups.parse_working_group_blocks() for
     how blocks are found and working_groups.group_consecutive_identical_blocks()
-    for how they're grouped.
-    @param {str} docx_path
-    @param {int|None} year_override -- overrides the fallback year used for
-        blocks whose date comes from a bare DD.MM section header (see
-        parse_working_group_blocks()); pass when the report doesn't cover
-        the year the script happens to run in (e.g. a December report
-        processed in January).
-    """
+    for how they're grouped. `year_override` overrides the fallback year
+    used for blocks whose date comes from a bare DD.MM section header (see
+    parse_working_group_blocks()); pass when the report doesn't cover the
+    year the script happens to run in (e.g. a December report processed in
+    January)."""
     if not os.path.isfile(docx_path):
         print(f"File not found: {docx_path}")
         sys.exit(1)
@@ -142,7 +133,7 @@ def generate_working_groups(docx_path, year_override=None):
     # group_consecutive_identical_blocks() compares final rendered text,
     # not raw source text that could still differ (or coincidentally
     # match) before those strips are applied.
-    processed_blocks = []
+    processed_blocks: list[WorkingGroupBlock] = []
     for block in blocks:
         text = strip_location_labels(strip_coordinates(block["text"])).rstrip()
         if text.endswith(";"):
@@ -152,10 +143,10 @@ def generate_working_groups(docx_path, year_override=None):
     groups = group_consecutive_identical_blocks(processed_blocks)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    used_paths = set()
+    used_paths: set[str] = set()
 
     for group in groups:
-        entries = [
+        entries: list[MergedEntry] = [
             {
                 "text": b["text"],
                 "date_from": b["date"],
@@ -181,7 +172,7 @@ def generate_working_groups(docx_path, year_override=None):
     print(f"Total: {len(groups)} files from {len(blocks)} blocks.")
 
 
-def main():
+def main() -> None:
     argv = sys.argv[1:]
     if argv[:1] == ["--working-groups"]:
         rest = argv[1:]
@@ -219,7 +210,7 @@ def main():
 
     # each day's paragraphs/time boundaries only depend on the file, not
     # the person -- load them once and reuse across every person below
-    days = []
+    days: list[DayRecord] = []
     for docx_path in docx_paths:
         columns = load_paragraph_columns(docx_path)
         if not columns:
@@ -265,7 +256,7 @@ def main():
                     )
                 missing_date += timedelta(days=1)
 
-        entries = []
+        entries: list[Fragment] = []
         for day in relevant_days:
             outcome = resolve_day_fragment(
                 day["paragraphs"],
@@ -274,7 +265,9 @@ def main():
                 full_name,
             )
             if outcome["status"] == "found":
-                entries.append(outcome["result"])
+                result = outcome["result"]
+                assert result is not None, "a 'found' outcome always carries a result"
+                entries.append(result)
             else:
                 print(f"    [{day['filename']}] skipped: {outcome['note']}")
 

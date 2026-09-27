@@ -6,8 +6,11 @@ doesn't have to re-implement the not-found/ambiguous/guardrail branching
 inline.
 """
 
+from datetime import date
+
 from assembly import assemble_fragment
 from config import FULL_NAME_AMBIGUITY_STRATEGY
+from domain_types import Paragraphs, ResolveResult, TimeBoundaries
 from prefilter import (
     build_pointer,
     extract_full_name,
@@ -18,23 +21,21 @@ from prefilter import (
 )
 
 
-def resolve_day_fragment(all_paragraphs, day_date, time_boundaries, full_name):
+def resolve_day_fragment(
+    all_paragraphs: Paragraphs,
+    day_date: date,
+    time_boundaries: TimeBoundaries,
+    full_name: str,
+) -> ResolveResult:
     """Resolves one person's fragment for one day's already-parsed paragraph
     list. `full_name` is a full "rank SURNAME Firstname Patronymic" string,
     same shape as prefilter.extract_surname()/extract_full_name() expect.
 
-    Returns a dict:
-      {"status": "found", "result": assemble_fragment()'s dict, "note": str,
-       "pointer": dict}
-      {"status": "not_found", "result": None, "note": str, "pointer": None}
-      {"status": "rejected", "result": None, "note": str, "pointer": dict}  # guardrail
-    `note` is a human-readable explanation, suitable for printing
-    or logging. `pointer` is build_pointer()'s raw dict (when resolution
-    got that far) — kept
-    around for the same real-file debugging workflow described in
-    CLAUDE.md's bug log (every prefilter.py fix started from inspecting a
-    real pointer that came out wrong).
-    """
+    `note` is a human-readable explanation, suitable for printing or
+    logging. `pointer` is build_pointer()'s raw dict (when resolution got
+    that far) — kept around for the same real-file debugging workflow
+    described in CLAUDE.md's bug log (every prefilter.py fix started from
+    inspecting a real pointer that came out wrong)."""
     surname = extract_surname(full_name)
     windows = find_candidate_windows(all_paragraphs, surname)
 
